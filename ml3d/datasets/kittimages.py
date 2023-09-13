@@ -290,9 +290,9 @@ class KITTImagesSplit():
         calib = self.dataset.read_calib(calib_path)
         boxes_2d, boxes_3d = self.dataset.read_label(label_path, calib)
         img = self.dataset.read_image(cam_path)
-        lidar2cam_rt = calib['world_cam']
-        lidar2img_rt = calib['cam_img'] @ calib['world_cam']
-        cam_intrinsic = calib['cam_img']
+        lidar2cam_rt = calib['world_cam'].T
+        lidar2img_rt = calib['cam_img'].T @ calib['world_cam'].T
+        cam_intrinsic = calib['cam_img'].T
 
         cams = {'CAM2': {'img': img, 
                          'lidar2cam_rt': lidar2cam_rt,
