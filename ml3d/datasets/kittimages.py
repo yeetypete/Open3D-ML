@@ -5,7 +5,7 @@ from pathlib import Path
 from glob import glob
 import logging
 import yaml
-from PIL import Image
+import open3d as o3d
 
 from .base_dataset import BaseDataset, BaseDatasetSplit
 from ..utils import Config, make_dir, DATASET
@@ -82,12 +82,15 @@ class KITTImages(BaseDataset):
             names.
         """
         label_to_names = {
-            0: 'Pedestrian',
-            1: 'Cyclist',
-            2: 'Car',
-            3: 'Van',
+            0: 'Car',
+            1: 'Van',
+            2: 'Truck',
+            3: 'Pedestrian',
             4: 'Person_sitting',
-            5: 'DontCare'
+            6: 'Cyclist',
+            7: 'Tram',
+            8: 'Misc',
+            9: 'DontCare'
         }
         return label_to_names
 
@@ -108,8 +111,8 @@ class KITTImages(BaseDataset):
             A numpy array representation of the image.
         """
         assert Path(path).exists(), "Path does not exist: {}".format(path)
-        with Image.open(path) as img:
-            return np.array(img)        
+        image = o3d.io.read_image(path)
+        return np.array(image)
 
     @staticmethod
     def read_label(path, calib):
@@ -297,8 +300,8 @@ class KITTImagesSplit():
         cams = {'CAM2': {'img': img, 
                          'lidar2cam_rt': lidar2cam_rt,
                          'lidar2img_rt': lidar2img_rt,
-                         'cam_intrinsic': cam_intrinsic},
-                         'bounding_boxes_2d': boxes_2d}
+                         'cam_intrinsic': cam_intrinsic,
+                         'bounding_boxes_2d': boxes_2d}}
 
         data = {
             'point': pc,
