@@ -56,6 +56,28 @@ class KITTImages(BaseDataset):
         self.num_classes = 3
         self.label_to_names = self.get_label_to_names()
 
+        self.train_info = []
+        self.test_info = []
+        self.val_info = []
+        
+        lidar_files = sorted(glob(join(cfg.dataset_path, 'training', 'velodyne', '*.bin')))
+        image_files = sorted(glob(join(cfg.dataset_path, 'training', 'image_2', '*.png')))
+
+        for i, (lidar, img) in enumerate(zip(lidar_files, image_files)):
+            if i < cfg.val_split:
+                self.train_info.append({'lidar_path': lidar,
+                                      'cams': {'CAM2': {'data_path': img}}})
+            else:
+                self.val_info.append({'lidar_path': lidar,
+                                      'cams': {'CAM2': {'data_path': img}}})
+        
+        lidar_files = sorted(glob(join(cfg.dataset_path, 'testing', 'velodyne', '*.bin')))
+        image_files = sorted(glob(join(cfg.dataset_path, 'testing', 'image_2', '*.png')))
+        
+        for lidar, img in zip(lidar_files, image_files):
+            self.test_info.append({'lidar_path': lidar,
+                                   'cams': {'CAM2': {'data_path': img}}})
+
         self.all_files = glob(
             join(cfg.dataset_path, 'training', 'velodyne', '*.bin'))
         self.all_files.sort()
@@ -82,15 +104,15 @@ class KITTImages(BaseDataset):
             names.
         """
         label_to_names = {
-            0: 'Car',
-            1: 'Van',
-            2: 'Truck',
-            3: 'Pedestrian',
+            0: 'Pedestrian',
+            1: 'Cyclist',
+            2: 'Car',
+            3: 'Van',
             4: 'Person_sitting',
-            6: 'Cyclist',
-            7: 'Tram',
-            8: 'Misc',
-            9: 'DontCare'
+            5: 'Truck',
+            6: 'Tram',
+            7: 'Misc',
+            8: 'DontCare'
         }
         return label_to_names
 
@@ -225,15 +247,12 @@ class KITTImages(BaseDataset):
             'all'.
         """
         if split in ['train', 'training']:
-            return self.train_files
+            return self.train_info
         elif split in ['test', 'testing']:
-            return self.test_files
+            return self.test_info
         elif split in ['val', 'validation']:
-            return self.val_files
-        elif split in ['all']:
-            return self.train_files + self.val_files + self.test_files
-        else:
-            raise ValueError("Invalid split {}".format(split))
+            return self.val_info
+        raise ValueError("Invalid split {}".format(split))
 
     def is_tested(self):
         """Checks if a datum in the dataset has been tested.
@@ -271,25 +290,29 @@ class KITTImagesSplit():
 
     def __init__(self, dataset, split='train'):
         self.cfg = dataset.cfg
-        path_list = dataset.get_split_list(split)
-        log.info("Found {} pointclouds for {}".format(len(path_list), split))
 
-        self.path_list = path_list
+        self.infos = dataset.get_split_list(split)
+        self.path_list = []
+        for info in self.infos:
+            self.path_list.append(info['lidar_path'])
+
+        log.info("Found {} pointclouds for {}".format(len(self.infos), split))
+    
         self.split = split
         self.dataset = dataset
 
     def __len__(self):
-        return len(self.path_list)
+        return len(self.infos)
 
     def get_data(self, idx):
-        pc_path = self.path_list[idx]
-        label_path = pc_path.replace('velodyne',
-                                     'label_2').replace('.bin', '.txt')
-        calib_path = label_path.replace('label_2', 'calib')
-        cam_path = pc_path.replace('velodyne', 'image_2').replace('.bin', '.png')
+        info = self.infos[idx]
+        lidar_path = info['lidar_path']
+        cam_path = info['cams']['CAM2']['data_path']
+        label_path = lidar_path.replace('velodyne', 'label_2').replace('.bin', '.txt')
+        calib_path = lidar_path.replace('velodyne', 'calib').replace('.bin', '.txt')
 
+        pc = self.dataset.read_lidar(lidar_path)
 
-        pc = self.dataset.read_lidar(pc_path)
         calib = self.dataset.read_calib(calib_path)
         boxes_2d, boxes_3d = self.dataset.read_label(label_path, calib)
         img = self.dataset.read_image(cam_path)
@@ -302,7 +325,7 @@ class KITTImagesSplit():
                          'lidar2img_rt': lidar2img_rt,
                          'cam_intrinsic': cam_intrinsic,
                          'bounding_boxes_2d': boxes_2d}}
-
+        
         data = {
             'point': pc,
             'feat': None,
