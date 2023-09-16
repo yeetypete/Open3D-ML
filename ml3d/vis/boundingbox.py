@@ -2,7 +2,6 @@ import numpy as np
 import open3d as o3d
 from PIL import Image, ImageDraw
 
-
 class BoundingBox3D:
     """Class that defines an axially-oriented bounding box."""
 
@@ -268,4 +267,94 @@ class BoundingBox3D:
                     pt1 = (corners[start, 0], corners[start, 1])
                     pt2 = (corners[end, 0], corners[end, 1])
                 draw.line([pt1, pt2], fill=c, width=thickness)
+        return np.array(img_pil).astype(np.uint8)
+    
+class BoundingBox2D:
+    """Class that defines a 2D bounding box in the image."""
+
+    next_id = 1
+
+    def __init__(self,
+                bbox, # left, top, right, bottom
+                label_class,
+                confidence,
+                meta=None,
+                show_class=False,
+                show_confidence=False,
+                show_meta=None,
+                identifier=None):
+        """Creates a bounding box.
+
+        Args:
+            bbox: (left, top, right, bottom) that defines the bounding box.
+            label_class: integer specifying the classification label. If an LUT
+                is specified in create_lines() this will be used to determine
+                the color of the box.
+            confidence: confidence level of the box.
+            meta: a user-defined string (optional).
+            show_class: displays the class label in text near the box
+                (optional).
+            show_confidence: displays the confidence value in text near the box
+                (optional).
+            show_meta: displays the meta string in text near the box (optional).
+            identifier: a unique integer that defines the id for the box
+                (optional, will be generated if not provided).
+            arrow_length: the length of the arrow in the front_direct. Set to
+                zero to disable the arrow (optional).
+        """
+        assert (len(bbox) == 4)
+
+        self.bbox = bbox
+        self.label_class = label_class
+        self.confidence = confidence
+        self.meta = meta
+        self.show_class = show_class
+        self.show_confidence = show_confidence
+        self.show_meta = show_meta
+        if identifier is not None:
+            self.identifier = identifier
+        else:
+            self.identifier = "box:" + str(BoundingBox2D.next_id)
+            BoundingBox2D.next_id += 1
+        
+    def __repr__(self):
+        s = str(self.identifier) + " (class=" + str(
+            self.label_class) + ", conf=" + str(self.confidence)
+        if self.meta is not None:
+            s = s + ", meta=" + str(self.meta)
+        s = s + ")"
+        return s
+    
+    @staticmethod
+    def plot_bbox_on_img(boxes, img, lut=None, thickness=1):
+        """Returns image with projected 2D bboxes
+
+        Args:
+            boxes: the list of BoundingBox2D
+            img: an RGB image
+            lidar2img_rt: 4x4 transformation from lidar frame to image plane
+            lut: a ml3d.vis.LabelLUT that is used to look up the color based on
+                the label_class argument of the BoundingBox3D constructor. If
+                not provided, a color of 50% grey will be used. (optional)
+        """
+        # use PIL to draw the bounding boxes
+        img_pil = Image.fromarray(img) # rgb
+        draw = ImageDraw.Draw(img_pil)
+        
+        # TODO: draw text
+        for i, box in enumerate(boxes):
+            bbox = box.bbox
+            
+            if lut is not None and box.label_class in lut.labels:
+                label = lut.labels[box.label_class]
+                c = (label.color[0], label.color[1], label.color[2])
+            else:
+                if box.confidence == -1.0:
+                    c = (0., 1.0, 0.)  # GT: Green
+                elif box.confidence >= 0 and box.confidence <= 1.0:
+                    c = (1.0, 0., 0.)  # Prediction: red
+                else:
+                    c = (0.5, 0.5, 0.5)  # Grey
+            c = tuple([int(255 * x) for x in c])
+            draw.rectangle(bbox, outline=c, width=thickness)
         return np.array(img_pil).astype(np.uint8)
