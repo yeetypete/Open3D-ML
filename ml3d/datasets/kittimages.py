@@ -9,7 +9,7 @@ import open3d as o3d
 
 from .base_dataset import BaseDataset, BaseDatasetSplit
 from ..utils import Config, make_dir, DATASET
-from .utils import DataProcessing, BEVBox3D
+from .utils import DataProcessing, BEVBox3D, BBox2D
 
 log = logging.getLogger(__name__)
 
@@ -165,7 +165,7 @@ class KITTImages(BaseDataset):
             size = [float(label[9]), float(label[8]), float(label[10])]  # w,h,l
             center = [points[0], points[1], size[1] / 2 + points[2]]
 
-            objects2d.append(bbox_2d)
+            objects2d.append(Objects2d(bbox_2d, label))
             objects3d.append(Object3d(center, size, label, calib))
 
         return objects2d, objects3d
@@ -401,6 +401,52 @@ class Object3d(BEVBox3D):
                      % (self.label_class, self.truncation, self.occlusion, self.alpha, self.box2d, self.size[2], self.size[0], self.size[1],
                         self.center, self.yaw)
         return print_str
+    
+class Objects2d(BBox2D):
+    """The class stores details that are object-specific, such as bounding box
+    coordinates, occulusion and so on.
+    """
 
+    def __init__(self, bbox, label):
+
+        confidence = float(label[15]) if label.__len__() == 16 else -1.0
+        class_name = label[0] if label[0] in KITTImages.get_label_to_names().values(
+        ) else 'DontCare'
+
+        self.box2d = np.array((float(label[4]), float(label[5]), float(
+            label[6]), float(label[7])),
+                              dtype=np.float32)
+        self.truncation = float(label[1])
+        self.occlusion = float(
+            label[2]
+        )  # 0:fully visible 1:partly occluded 2:largely occluded 3:unknown
+        
+        super().__init__(bbox,
+                        class_name,
+                        confidence)
+        
+    def get_difficulty(self):
+        """The method determines difficulty level of the object, such as Easy,
+        Moderate, or Hard.
+        """
+        height = float(self.box2d[3]) - float(self.box2d[1]) + 1
+
+        if height >= 40 and self.truncation <= 0.15 and self.occlusion <= 0:
+            self.level_str = 'Easy'
+            return 0  # Easy
+        elif height >= 25 and self.truncation <= 0.3 and self.occlusion <= 1:
+            self.level_str = 'Moderate'
+            return 1  # Moderate
+        elif height >= 25 and self.truncation <= 0.5 and self.occlusion <= 2:
+            self.level_str = 'Hard'
+            return 2  # Hard
+        else:
+            self.level_str = 'UnKnown'
+            return -1
+        
+    def to_str(self):
+        print_str = '%s %.3f box2d: %s' \
+                     % (self.label_class, self.confidence, self.bbox)
+        return print_str
 
 DATASET._register_module(KITTImages)
