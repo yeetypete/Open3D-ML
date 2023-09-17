@@ -9,7 +9,7 @@ import open3d as o3d
 
 from .base_dataset import BaseDataset, BaseDatasetSplit
 from ..utils import Config, make_dir, DATASET
-from .utils import DataProcessing, BEVBox3D, BBox2D
+from .utils import DataProcessing, BEVBox3D
 
 log = logging.getLogger(__name__)
 
@@ -149,11 +149,9 @@ class KITTImages(BaseDataset):
         with open(path, 'r') as f:
             lines = f.readlines()
 
-        objects2d = []
-        objects3d = []
+        objects = []
         for line in lines:
             label = line.strip().split(' ')
-            bbox_2d = [float(label[4]), float(label[5]), float(label[6]), float(label[7])]
 
             center = np.array(
                 [float(label[11]),
@@ -165,10 +163,9 @@ class KITTImages(BaseDataset):
             size = [float(label[9]), float(label[8]), float(label[10])]  # w,h,l
             center = [points[0], points[1], size[1] / 2 + points[2]]
 
-            objects2d.append(Objects2d(bbox_2d, label))
-            objects3d.append(Object3d(center, size, label, calib))
+            objects.append(Object3d(center, size, label, calib))
 
-        return objects2d, objects3d
+        return objects
 
     @staticmethod
     def _extend_matrix(mat):
@@ -314,7 +311,7 @@ class KITTImagesSplit():
         pc = self.dataset.read_lidar(lidar_path)
 
         calib = self.dataset.read_calib(calib_path)
-        boxes_2d, boxes_3d = self.dataset.read_label(label_path, calib)
+        label = self.dataset.read_label(label_path, calib)
         img = self.dataset.read_image(cam_path)
         lidar2cam_rt = calib['world_cam'].T
         lidar2img_rt = calib['cam_img'].T @ calib['world_cam'].T
@@ -323,14 +320,17 @@ class KITTImagesSplit():
         cams = {'CAM2': {'img': img, 
                          'lidar2cam_rt': lidar2cam_rt,
                          'lidar2img_rt': lidar2img_rt,
-                         'cam_intrinsic': cam_intrinsic,
-                         'bounding_boxes_2d': boxes_2d}}
+                         'cam_intrinsic': cam_intrinsic}}
         
+        reduced_pc = DataProcessing.remove_outside_points(
+            pc, calib['world_cam'], calib['cam_img'], [375, 1242])
+
         data = {
-            'point': pc,
+            'point': reduced_pc,
+            'full_point': pc,
             'feat': None,
-            'calib': {'world_cam': calib['world_cam']},
-            'bounding_boxes': boxes_3d,
+            'calib': calib,
+            'bounding_boxes': label,
             'cams': cams,
         }
 
@@ -401,52 +401,6 @@ class Object3d(BEVBox3D):
                      % (self.label_class, self.truncation, self.occlusion, self.alpha, self.box2d, self.size[2], self.size[0], self.size[1],
                         self.center, self.yaw)
         return print_str
-    
-class Objects2d(BBox2D):
-    """The class stores details that are object-specific, such as bounding box
-    coordinates, occulusion and so on.
-    """
 
-    def __init__(self, bbox, label):
-
-        confidence = float(label[15]) if label.__len__() == 16 else -1.0
-        class_name = label[0] if label[0] in KITTImages.get_label_to_names().values(
-        ) else 'DontCare'
-
-        self.box2d = np.array((float(label[4]), float(label[5]), float(
-            label[6]), float(label[7])),
-                              dtype=np.float32)
-        self.truncation = float(label[1])
-        self.occlusion = float(
-            label[2]
-        )  # 0:fully visible 1:partly occluded 2:largely occluded 3:unknown
-        
-        super().__init__(bbox,
-                        class_name,
-                        confidence)
-        
-    def get_difficulty(self):
-        """The method determines difficulty level of the object, such as Easy,
-        Moderate, or Hard.
-        """
-        height = float(self.box2d[3]) - float(self.box2d[1]) + 1
-
-        if height >= 40 and self.truncation <= 0.15 and self.occlusion <= 0:
-            self.level_str = 'Easy'
-            return 0  # Easy
-        elif height >= 25 and self.truncation <= 0.3 and self.occlusion <= 1:
-            self.level_str = 'Moderate'
-            return 1  # Moderate
-        elif height >= 25 and self.truncation <= 0.5 and self.occlusion <= 2:
-            self.level_str = 'Hard'
-            return 2  # Hard
-        else:
-            self.level_str = 'UnKnown'
-            return -1
-        
-    def to_str(self):
-        print_str = '%s %.3f box2d: %s' \
-                     % (self.label_class, self.confidence, self.bbox)
-        return print_str
 
 DATASET._register_module(KITTImages)
