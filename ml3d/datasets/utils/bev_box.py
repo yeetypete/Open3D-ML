@@ -61,6 +61,8 @@ class BEVBox3D(BoundingBox3D):
 
     def to_kitti_format(self, score=1.0):
         """This method transforms the class to KITTI format."""
+        # TODO: calculate truncation, occlusion
+        
         box2d = self.to_img()
         box2d[2:] += box2d[:2]  # Add w, h.
         truncation = -1

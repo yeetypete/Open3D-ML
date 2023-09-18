@@ -1,6 +1,7 @@
 import numpy as np
 import open3d as o3d
 from PIL import Image, ImageDraw
+import numpy.typing as npt
 
 class BoundingBox3D:
     """Class that defines an axially-oriented bounding box."""
@@ -8,19 +9,20 @@ class BoundingBox3D:
     next_id = 1
 
     def __init__(self,
-                 center,
-                 front,
-                 up,
-                 left,
-                 size,
-                 label_class,
-                 confidence,
-                 meta=None,
-                 show_class=False,
-                 show_confidence=False,
-                 show_meta=None,
-                 identifier=None,
-                 arrow_length=1.0):
+                center,
+                front,
+                up,
+                left,
+                size,
+                label_class,
+                confidence,
+                meta=None,
+                show_class=False,
+                show_confidence=False,
+                show_meta=None,
+                identifier=None,
+                arrow_length=1.0,
+                center_cov=np.zeros((3,3))):
         """Creates a bounding box.
 
         Front, up, left define the axis of the box and must be normalized and
@@ -55,6 +57,7 @@ class BoundingBox3D:
         assert (len(up) == 3)
         assert (len(left) == 3)
         assert (len(size) == 3)
+        assert (center_cov.shape == (3,3))
 
         self.center = np.array(center, dtype="float32")
         self.front = np.array(front, dtype="float32")
@@ -67,6 +70,8 @@ class BoundingBox3D:
         self.show_class = show_class
         self.show_confidence = show_confidence
         self.show_meta = show_meta
+        self.center_cov = center_cov
+
         if identifier is not None:
             self.identifier = identifier
         else:
@@ -111,6 +116,8 @@ class BoundingBox3D:
         colors = np.zeros((nlines * len(boxes), 3), dtype="float32")
 
         for i, box in enumerate(boxes):
+            if np.allclose(box.size, 0) and np.allclose(box.arrow_length, 0):
+                continue
             pidx = nverts * i
             x = 0.5 * box.size[0] * box.left
             y = 0.5 * box.size[1] * box.up
@@ -179,6 +186,67 @@ class BoundingBox3D:
             }
 
         return lines
+    
+    @staticmethod
+    def create_meshes(boxes, lut=None, n_std=1.0, resolution=20, reg=1e-6, axis_min=0.0):
+        """Creates an ellipsoid covariance meshes for the center of each box."""
+        def is_valid_cov(cov: npt.NDArray, reg=1e-6) -> bool:
+            """Check if covariance matrix is positive semi-definite and symmetric"""
+            cov = cov + reg * np.eye(cov.shape[0])
+            if not np.allclose(cov, cov.T):
+                return False
+            if np.any(np.linalg.eigvalsh(cov) < 0):
+                return False
+            return True
+        
+        mesh = o3d.geometry.TriangleMesh()
+        for box in boxes:
+            # eigenvalue decomposition
+            # regularize covariance matrix
+            mean = box.center
+            cov = box.center_cov
+            # continue if cov is <= reg
+
+            if not is_valid_cov(cov, reg=reg):
+                raise ValueError("Invalid covariance matrix")
+            if np.allclose(cov, 0, atol=reg):
+                continue
+
+            cov = cov + np.eye(3) * reg
+            eig_val, eig_vec = np.linalg.eigh(cov)
+
+            # eigenvalue must be greater than axis_min
+            if axis_min > 0.0:
+                eig_val[eig_val < axis_min] = axis_min / n_std
+
+            # unit sphere
+            cov_mesh = o3d.geometry.TriangleMesh.create_sphere(radius=1.0, resolution=resolution)
+            vertices = np.asarray(cov_mesh.vertices)
+
+            # deform sphere
+            transform = eig_vec @ np.diag(np.sqrt(eig_val) * n_std)
+            vertices = vertices @ transform
+            cov_mesh.vertices = o3d.utility.Vector3dVector(vertices)
+
+            # translate sphere
+            cov_mesh.translate(mean)
+            cov_mesh.rotate(eig_vec, center=mean)
+
+            if lut is not None and box.label_class in lut.labels:
+                label = lut.labels[box.label_class]
+                c = (label.color[0], label.color[1], label.color[2])
+            else:
+                if box.confidence == -1.0:
+                    c = (0., 1.0, 0.)  # GT: Green
+                elif box.confidence >= 0 and box.confidence <= 1.0:
+                    c = (1.0, 0., 0.)  # Prediction: red
+                else:
+                    c = (0.5, 0.5, 0.5)  # Grey
+
+            cov_mesh.paint_uniform_color(c)
+            mesh += cov_mesh
+        mesh.compute_vertex_normals()
+        return mesh
     
     @staticmethod
     def plot_bbox_on_img(boxes, img, lut=None, thickness=3):
@@ -281,6 +349,7 @@ class BoundingBox3D:
                 1.0), i.e. white.
             thickness (int, optional): The thickness of bboxes. Default: 1.
         """
+        # TODO: use to_kitti_format() to get 2d bbox first
         img_pil = Image.fromarray(img)
         draw = ImageDraw.Draw(img_pil)
 
@@ -362,4 +431,3 @@ class BoundingBox3D:
                     pt2 = (corners[end, 0], corners[end, 1])
                 draw.line([pt1, pt2], fill=c, width=thickness)
         return np.array(img_pil).astype(np.uint8)
-

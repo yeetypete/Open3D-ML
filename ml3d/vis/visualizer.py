@@ -12,12 +12,12 @@ from .labellut import *
 
 import time
 
-
 class Model:
     """The class that helps build visualization models based on attributes,
     data, and methods.
     """
     bounding_box_prefix = "Bounding Boxes/"
+    mesh_prefix = "Meshes/"
 
     class BoundingBoxData:
         """The class to define a bounding box that is used to describe the
@@ -31,6 +31,13 @@ class Model:
         def __init__(self, name, boxes):
             self.name = name
             self.boxes = boxes
+
+    class MeshData:
+        """The class to define a mesh that is used to describe the target"""
+            
+        def __init__(self, name, mesh):
+            self.name = name
+            self.mesh = mesh
 
     def __init__(self):
         # Note: the tpointcloud cannot store the actual data arrays, because
@@ -246,16 +253,42 @@ class DataModel(Model):
             self._init_data(name)
             self._name2srcdata[name] = d
 
-            if 'bounding_boxes' in d:
-                self.bounding_box_data.append(
-                    Model.BoundingBoxData(name, d['bounding_boxes']))
-
     def load(self, name, fail_if_no_space=False):
         """Load a pointcloud based on the name provided."""
         if self.is_loaded(name):
             return True
-
+        
         self.create_point_cloud(self._name2srcdata[name])
+
+        if 'bounding_boxes' in self._name2srcdata[name]:
+            self.bounding_box_data.append(
+                Model.BoundingBoxData(name, self._name2srcdata[name]['bounding_boxes']))
+            
+        if 'cams' in self._name2srcdata[name]:
+            for _, val in self._name2srcdata[name]['cams'].items():
+                lidar2img_rt = val['lidar2img_rt']
+                bbox_data = self._name2srcdata[name]['bounding_boxes']
+                img_shape = val['img'].shape
+
+                # calculate a good thickness
+                thickness = math.ceil(
+                    min(img_shape[0], img_shape[1]) / 200)
+                
+                bbox_3d_img = BoundingBox3D.project_to_img(
+                    bbox_data, np.copy(val['img']), lidar2img_rt, thickness=thickness)
+                val['bbox_3d'] = bbox_3d_img
+                
+                if hasattr(bbox_data[0], 'box2d'):
+                    bbox_2d_img = BoundingBox3D.plot_bbox_on_img(
+                        bbox_data, np.copy(val['img']), thickness=thickness)
+                    val['bbox_2d'] = bbox_2d_img
+
+                else:
+                    bbox_2d_img = BoundingBox3D.project_to_img(
+                        bbox_data, np.copy(val['img']), lidar2img_rt, outline_only=True, thickness=thickness)
+                    val['bbox_2d'] = bbox_2d_img
+
+            self.create_cams(name, self._name2srcdata[name]['cams'], update=True)
 
     def unload(self, name):
         """Unload a pointcloud."""
@@ -297,7 +330,7 @@ class DatasetModel(Model):
             # because this format is used to report algorithm results, so do it
             # here.
             underscore_to_slash = False
-            if dataset.__class__.__name__ == "SemanticKITTI":
+            if dataset.__class__.__name__ == "Semantic_":
                 underscore_to_slash = True
 
             for i in indices:
@@ -349,15 +382,31 @@ class DatasetModel(Model):
             self.bounding_box_data.append(
                 Model.BoundingBoxData(name, data['bounding_boxes']))
 
-            if 'cams' in data:
-                for _, val in data['cams'].items():
-                    lidar2img_rt = val['lidar2img_rt']
-                    bbox_data = data['bounding_boxes']
-                    bbox_3d_img = BoundingBox3D.project_to_img(
-                        bbox_data, np.copy(val['img']), lidar2img_rt)
-                    val['bbox_3d'] = bbox_3d_img
+        if 'cams' in data:
+            for _, val in data['cams'].items():
+                lidar2img_rt = val['lidar2img_rt']
+                bbox_data = data['bounding_boxes']
+                img_shape = val['img'].shape
 
-                self.create_cams(data['name'], data['cams'], update=True)
+                # calculate a good thickness
+                thickness = math.ceil(
+                    min(img_shape[0], img_shape[1]) / 200)
+                
+                bbox_3d_img = BoundingBox3D.project_to_img(
+                    bbox_data, np.copy(val['img']), lidar2img_rt, thickness=thickness)
+                val['bbox_3d'] = bbox_3d_img
+                
+                if hasattr(bbox_data[0], 'box2d'):
+                    bbox_2d_img = BoundingBox3D.plot_bbox_on_img(
+                        bbox_data, np.copy(val['img']), thickness=thickness)
+                    val['bbox_2d'] = bbox_2d_img
+
+                else:
+                    bbox_2d_img = BoundingBox3D.project_to_img(
+                        bbox_data, np.copy(val['img']), lidar2img_rt, outline_only=True, thickness=thickness)
+                    val['bbox_2d'] = bbox_2d_img
+
+            self.create_cams(data['name'], data['cams'], update=True)
 
         size = self._calc_pointcloud_size(self._data[name], self.tclouds[name],
                                           self.tcams[name])
@@ -788,13 +837,16 @@ class Visualizer:
                     self._modality['use_lidar'] = True
                 if 'cams' in val:
                     self._modality['use_camera'] = True
-                    self._cam_names = list(
-                        self._objects._dataset.infos[0]['cams'].keys())
+                    # self._cam_names = list(
+                    #     self._objects._dataset.infos[0]['cams'].keys())
+                    self._cam_names = list(val['cams'].keys()) #TODO: switch back
+
 
     def _init_user_interface(self, title, width, height):
         self.window = gui.Application.instance.create_window(
             title, width, height)
         self.window.set_on_layout(self._on_layout)
+        self.window.set_on_close(self._on_close)
 
         em = self.window.theme.font_size
 
@@ -804,7 +856,21 @@ class Visualizer:
         self.window.add_child(self._3d)
 
         self._panel = gui.Vert()
+        # self._proxy_panel = gui.WidgetProxy()
+        # self._proxy_panel.set_widget(self._panel)
         self.window.add_child(self._panel)
+        # self.window.add_child(self._proxy_panel)
+        self.popout_window = None
+        
+        # if gui.Application.instance.menubar is None:
+        #     menubar = gui.Menu()
+        #     menu = gui.Menu()
+        #     self._MENU_SHOW_PANEL = 1
+        #     menu.add_item("Show Panel", self._MENU_SHOW_PANEL)
+        #     menu.set_checked(self._MENU_SHOW_PANEL, True)
+        #     menubar.add_menu("Options", menu)
+        #     gui.Application.instance.menubar = menubar
+        #     self.window.set_on_menu_item_activated(self._MENU_SHOW_PANEL, self._on_menu_show_panel)
 
         indented_margins = gui.Margins(em, 0, em, 0)
 
@@ -889,7 +955,9 @@ class Visualizer:
 
         # ... select image mode
         self._img_mode = gui.Combobox()
-        for item in ["raw", "bbox_3d"]:
+        img_modes = ["raw", "bbox_3d", "bbox_2d"]
+
+        for item in img_modes:
             self._img_mode.add_item(item)
         self._img_mode.selected_index = 0
         self._img_mode.set_on_selection_changed(self._on_img_mode_changed)
@@ -906,8 +974,14 @@ class Visualizer:
         grid.add_child(gui.Label("Showing"))
         grid.add_child(self._slider_current)
 
-        v.add_fixed(em)
 
+        v.add_fixed(em)
+        
+        self._animation_hz = gui.NumberEdit(gui.NumberEdit.INT)
+        self._animation_hz.int_value = int(1 / self._animation_delay_secs)
+        self._animation_hz.set_limits(1, 100)
+        self._animation_hz.set_on_value_changed(self._on_animation_hz_changed)
+        animation_hz_label = gui.Label("Rate (Hz)")
         self._play = gui.Button("Play")
         self._play.horizontal_padding_em = 0.5
         self._play.vertical_padding_em = 0
@@ -920,12 +994,21 @@ class Visualizer:
         self._prev.horizontal_padding_em = 0.5
         self._prev.vertical_padding_em = 0
         self._prev.set_on_clicked(self._on_prev)
+        self._popout = gui.Button("Popout")
+        self._popout.horizontal_padding_em = 0.5
+        self._popout.vertical_padding_em = 0
+        self._popout.set_on_clicked(self._on_popout)
 
         h = gui.Horiz()
         h.add_stretch()
+        h.add_child(animation_hz_label)
+        h.add_child(self._animation_hz)
+        h.add_fixed(1.0 * em)
         h.add_child(self._prev)
         h.add_child(self._play)
         h.add_child(self._next)
+        h.add_fixed(1.0 * em)
+        h.add_child(self._popout)
         h.add_stretch()
         v.add_child(h)
 
@@ -939,6 +1022,7 @@ class Visualizer:
             v.add_child(w)
             for cam in self._cam_names:
                 self._img[cam] = gui.ImageWidget(o3d.t.geometry.Image())
+                self._img[cam].tooltip = cam
                 cam_grid.add_child(self._img[cam])
 
         # Coloring
@@ -1240,7 +1324,7 @@ class Visualizer:
             material.scalar_max = self._scalar_max
 
         return material
-
+        
     def _update_bounding_boxes(self, animation_frame=None):
         if len(self._attrname2lut) == 1:
             # Can't do dict.values()[0], so have to iterate over the 1 element
@@ -1253,12 +1337,16 @@ class Visualizer:
         else:
             lut = None
 
-        mat = rendering.MaterialRecord()
-        mat.shader = "unlitLine"
-        mat.line_width = 2 * self.window.scaling
+        lines_mat = rendering.MaterialRecord()
+        lines_mat.shader = "unlitLine"
+        lines_mat.line_width = 2 * self.window.scaling
+
+        meshes_mat = rendering.MaterialRecord()
+        meshes_mat.shader = "defaultUnlit"
 
         if self._consolidate_bounding_boxes:
-            name = Model.bounding_box_prefix.split("/")[0]
+            name_boxes = Model.bounding_box_prefix.split("/")[0]
+            name_meshes = Model.mesh_prefix.split("/")[0]
             boxes = []
             # When consolidated we assume bbox_data.name is the geometry name.
             if animation_frame is None:
@@ -1273,13 +1361,25 @@ class Visualizer:
                         boxes = bbox_data.boxes
                         break
 
-            self._3d.scene.remove_geometry(name)
+            self._3d.scene.remove_geometry(name_boxes)
+            self._3d.scene.remove_geometry(name_meshes)
             if len(boxes) > 0:
-                lines = BoundingBox3D.create_lines(boxes, lut)
-                self._3d.scene.add_geometry(name, lines, mat)
+                if name_boxes not in self._name2treenode:
+                    self._add_tree_name(name_boxes, is_geometry=False)
 
-                if name not in self._name2treenode:
-                    self._add_tree_name(name, is_geometry=False)
+                if name_meshes not in self._name2treenode:
+                    self._add_tree_name(name_meshes, is_geometry=False)
+
+                if self._name2treenode[name_boxes].checkbox.checked:
+                    lines = BoundingBox3D.create_lines(boxes, lut)
+                    if not np.allclose(np.asarray(lines.points), 0):
+                        self._3d.scene.add_geometry(name_boxes, lines, lines_mat)
+                
+                if self._name2treenode[name_meshes].checkbox.checked:
+                    meshes = BoundingBox3D.create_meshes(boxes, lut, n_std=2.0, axis_min=0.1)
+                    if not np.allclose(np.asarray(meshes.vertices), 0):
+                        self._3d.scene.add_geometry(name_meshes, meshes, meshes_mat)
+
             self._3d.force_redraw()
         else:
             # Don't run this more than once if we aren't consolidating,
@@ -1290,8 +1390,14 @@ class Visualizer:
                     return
 
             for bbox_data in self._objects.bounding_box_data:
+                print(f"bbox name: {bbox_data.name}")
                 lines = BoundingBox3D.create_lines(bbox_data.boxes, lut)
-                self._3d.scene.add_geometry(bbox_data.name, lines, mat)
+                if not np.allclose(np.asarray(lines.points), 0):
+                    self._3d.scene.add_geometry(bbox_data.name, lines, lines_mat)
+                
+                meshes = BoundingBox3D.create_meshes(bbox_data.boxes, lut, n_std=2.0, axis_min=0.1)
+                if not np.allclose(np.asarray(meshes.vertices), 0):
+                    self._3d.scene.add_geometry(bbox_data.name, meshes, meshes_mat)
 
             for bbox_data in self._objects.bounding_box_data:
                 self._add_tree_name(bbox_data.name, is_geometry=False)
@@ -1420,7 +1526,18 @@ class Visualizer:
         self._panel.frame = panel_rect
         self._3d.frame = gui.Rect(frame.x, frame.y, panel_rect.x - frame.x,
                                   frame.height - frame.y)
-
+        
+    def _on_close(self):
+        if self.popout_window is not None:
+            self.popout_window.close()
+        return True
+    
+    def _on_menu_show_panel(self):
+        gui.Application.instance.menubar.set_checked(
+            self._MENU_SHOW_PANEL,
+            not gui.Application.instance.menubar.is_checked(
+                self._MENU_SHOW_PANEL))
+        
     def _on_arcball_mode(self):
         self._3d.set_view_controls(gui.SceneWidget.ROTATE_CAMERA)
 
@@ -1463,6 +1580,13 @@ class Visualizer:
             for cam in self._cam_names:
                 self._img[cam].update_image(
                     self._objects.tcams[self._animation_frames[idx]][cam])
+            
+            # update popout window
+            if self.popout_window is not None:
+                for cam in self._cam_names:
+                    self._popout_img[cam].update_image(
+                        self._objects.tcams[self._animation_frames[idx]][cam])
+                self.popout_window.post_redraw() # redraw popout window
 
         self._update_bounding_boxes(animation_frame=idx)
         self._3d.force_redraw()
@@ -1505,6 +1629,48 @@ class Visualizer:
         self._slider.int_value -= 1
         self._on_animation_slider_changed(self._slider.int_value)
 
+    def _on_animation_hz_changed(self, val):
+        if val > self._animation_hz.maximum_value:
+            self._animation_hz.int_value = int(self._animation_hz.maximum_value)
+            self._animation_delay_secs = 1.0 / float(self._animation_hz.maximum_value)
+        elif val < self._animation_hz.minimum_value:
+            self._animation_hz.int_value = int(self._animation_hz.minimum_value)
+            self._animation_delay_secs = 1.0 / float(self._animation_hz.minimum_value)
+        else:
+            self._animation_delay_secs = 1.0 / float(self._animation_hz.int_value)
+
+    def _on_popout(self):
+        # create new window with same content
+        if self.popout_window is not None:
+            return
+        
+        self.popout_window = gui.Application.instance.create_window(
+            "Popout", 800, 600)
+        w = self.popout_window
+        w.set_on_close(self._on_popout_close)
+        em = w.theme.font_size
+        indented_margins = gui.Margins(0, 0, 0, 0)
+        
+        layout = gui.Vert(0, indented_margins)
+        cam_grid = gui.VGrid(2, 0, indented_margins)  # change no. of cam_grid columns here
+
+        layout.add_child(cam_grid)
+        w.add_child(layout)
+        self._popout_img = dict()
+
+        idx = (self._slider.int_value + 1) % len(self._animation_frames)
+        if hasattr(self, '_cam_names'):
+            for cam in self._cam_names:
+                self._popout_img[cam] = gui.ImageWidget(o3d.t.geometry.Image())
+                self._popout_img[cam].tooltip = cam
+                cam_grid.add_child(self._popout_img[cam])
+                self._popout_img[cam].update_image(
+                    self._objects.tcams[self._animation_frames[int(idx)]][cam])
+
+    def _on_popout_close(self):
+        self.popout_window = None
+        return True
+
     def _on_img_mode_changed(self, name, idx):
         if idx == self._prev_img_mode:
             return
@@ -1524,6 +1690,13 @@ class Visualizer:
                     self._objects.create_cams(n,
                                               self._objects._data[n]['cams'],
                                               key='bbox_3d',
+                                              update=False)
+        elif idx == 2:  # or name == 'bbox_2d'
+            for n in self._objects.data_names:
+                if self._objects.is_loaded(n):
+                    self._objects.create_cams(n,
+                                              self._objects._data[n]['cams'],
+                                              key='bbox_2d',
                                               update=False)
 
     def _on_bgcolor_changed(self, new_color):
@@ -1565,6 +1738,7 @@ class Visualizer:
                 self._3d.scene.show_geometry(name, False)
 
     def _check_bw_lims(self):
+        # BUG: does not load more than 1 geometry at a time
         for i in range(self._lower_val.int_value,
                        self._upper_val.int_value + 1):
             name = self._objects.data_names[i]
