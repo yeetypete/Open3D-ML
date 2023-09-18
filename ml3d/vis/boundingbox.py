@@ -1,7 +1,8 @@
 import numpy as np
 import open3d as o3d
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import numpy.typing as npt
+from matplotlib import font_manager
 
 class BoundingBox3D:
     """Class that defines an axially-oriented bounding box."""
@@ -252,7 +253,7 @@ class BoundingBox3D:
     def plot_bbox_on_img(boxes, img, lut=None, thickness=3):
         for box in boxes:
             assert hasattr(box, 'box2d')
-        
+
         # use PIL to draw the bounding boxes
         img_pil = Image.fromarray(img) # rgb
         draw = ImageDraw.Draw(img_pil)
@@ -275,6 +276,18 @@ class BoundingBox3D:
                     c = (0.5, 0.5, 0.5)  # Grey
             c = tuple([int(255 * x) for x in c])
             draw.rectangle(bbox, outline=c, width=thickness)
+            if box.show_meta:
+                # select font size based on the size of the image
+                font_path = font_manager.findfont(font_manager.FontProperties(family='Arial', weight='bold'), fontext='ttf')
+                font_size = min(img.shape[0], img.shape[1]) // 30
+                font = ImageFont.truetype(font_path, font_size)
+                x = bbox[0]
+                y = bbox[1] - font_size
+                font_bbox = list(draw.textbbox((x, y), str(box.meta), font=font, align="left"))
+                font_bbox[1] -= thickness
+                draw.rectangle(font_bbox, fill=c, outline=c, width=thickness)
+                draw.text((x, y), str(box.meta), font=font, align="left", fill=(255, 255, 255))
+
         return np.array(img_pil).astype(np.uint8)
 
     @staticmethod
@@ -376,6 +389,7 @@ class BoundingBox3D:
 
             # Draw the bounding rectangle
             draw.rectangle([(min_x, min_y), (max_x, max_y)], outline=c, width=thickness)
+
 
         return np.array(img_pil).astype(np.uint8)
 

@@ -271,6 +271,7 @@ class NuSceneSplit():
             'calib': calib,
             'bounding_boxes': label,
         }
+        # TODO: set cam_img for each bounding box
 
         if 'cams' in info:
             data['cams'] = self.dataset.read_cams(info['cams'])

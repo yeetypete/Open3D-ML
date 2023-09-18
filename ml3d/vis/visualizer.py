@@ -979,7 +979,7 @@ class Visualizer:
         
         self._animation_hz = gui.NumberEdit(gui.NumberEdit.INT)
         self._animation_hz.int_value = int(1 / self._animation_delay_secs)
-        self._animation_hz.set_limits(1, 100)
+        self._animation_hz.set_limits(1, 30)
         self._animation_hz.set_on_value_changed(self._on_animation_hz_changed)
         animation_hz_label = gui.Label("Rate (Hz)")
         self._play = gui.Button("Play")
@@ -1644,15 +1644,27 @@ class Visualizer:
         if self.popout_window is not None:
             return
         
+        # calculate optimal window shape
+        cols = 2
+        window_shape = [800, 600]
+        if (hasattr(self, '_cam_names')):
+            n_cams = len(self._cam_names)
+            if n_cams < 4:
+                cols = 1
+            img_h = self._objects.tcams[self._animation_frames[0]][self._cam_names[0]].rows
+            img_w = self._objects.tcams[self._animation_frames[0]][self._cam_names[0]].columns
+            window_aspect = (cols * img_w) / (math.ceil(n_cams / cols) * img_h)
+            window_shape[1] = int(window_shape[0] / window_aspect)
+        
         self.popout_window = gui.Application.instance.create_window(
-            "Popout", 800, 600)
+            "Popout", window_shape[0], window_shape[1])
         w = self.popout_window
         w.set_on_close(self._on_popout_close)
         em = w.theme.font_size
         indented_margins = gui.Margins(0, 0, 0, 0)
         
         layout = gui.Vert(0, indented_margins)
-        cam_grid = gui.VGrid(2, 0, indented_margins)  # change no. of cam_grid columns here
+        cam_grid = gui.VGrid(cols, 0, indented_margins)  # change no. of cam_grid columns here
 
         layout.add_child(cam_grid)
         w.add_child(layout)
