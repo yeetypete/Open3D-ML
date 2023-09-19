@@ -250,19 +250,27 @@ class BoundingBox3D:
         return mesh
     
     @staticmethod
-    def plot_bbox_on_img(boxes, img, lut=None, thickness=3):
-        for box in boxes:
-            assert hasattr(box, 'box2d')
-
+    def plot_bbox_on_img(boxes, img, cam_name, lut=None, thickness=3):
         # use PIL to draw the bounding boxes
         img_pil = Image.fromarray(img) # rgb
         draw = ImageDraw.Draw(img_pil)
 
         img_pil = Image.fromarray(img) # rgb
         draw = ImageDraw.Draw(img_pil)
+
+        # sort boxes by descending distance to camera, then descending confidence
+        for box in boxes:
+            if not hasattr(box, 'dis_to_cam'):
+                box.dis_to_cam = np.linalg.norm(box.center) # TODO: check how dis_to_cam is calculated in open3d
+
+        boxes = sorted(boxes, key=lambda x: (x.dis_to_cam, x.confidence), reverse=True)
         
         for i, box in enumerate(boxes):
-            bbox = box.box2d.tolist()
+            if not hasattr(box, 'box2d') or not hasattr(box, 'cam_name'):
+                continue
+            if box.cam_name != cam_name:
+                continue
+            bbox = box.box2d
             
             if lut is not None and box.label_class in lut.labels:
                 label = lut.labels[box.label_class]
@@ -276,7 +284,7 @@ class BoundingBox3D:
                     c = (0.5, 0.5, 0.5)  # Grey
             c = tuple([int(255 * x) for x in c])
             draw.rectangle(bbox, outline=c, width=thickness)
-            if box.show_meta:
+            if box.show_meta and box.confidence >= 0 and box.confidence <= 1.0:
                 # select font size based on the size of the image
                 font_path = font_manager.findfont(font_manager.FontProperties(family='Arial', weight='bold'), fontext='ttf')
                 font_size = min(img.shape[0], img.shape[1]) // 30
@@ -287,8 +295,43 @@ class BoundingBox3D:
                 font_bbox[1] -= thickness
                 draw.rectangle(font_bbox, fill=c, outline=c, width=thickness)
                 draw.text((x, y), str(box.meta), font=font, align="left", fill=(255, 255, 255))
+            if box.show_meta and box.confidence == -1.0:
+                # plot GT boxes in bottom right corner
+                font_path = font_manager.findfont(font_manager.FontProperties(family='Arial', weight='bold'), fontext='ttf')
+                font_size = min(img.shape[0], img.shape[1]) // 30
+                font = ImageFont.truetype(font_path, font_size)
+                x = bbox[2]
+                y = bbox[3] + font_size
+                font_bbox = list(draw.textbbox((x, y), str(box.meta), font=font, anchor="rb", align="right"))
+                font_bbox[3] += thickness
+                draw.rectangle(font_bbox, fill=c, outline=c, width=thickness)
+                draw.text((x, y), str(box.meta), font=font, anchor="rb", align="right", fill=(255, 255, 255))
 
         return np.array(img_pil).astype(np.uint8)
+    
+    @staticmethod
+    def enable_meta(boxes, attrs=[], prefix=[], suffix=[]):
+        """Enables meta information for the boxes."""
+        for box in boxes:
+            box.show_meta = True
+            if not attrs:
+                continue
+            box.meta = ""
+            for i, attr in enumerate(attrs):
+                if hasattr(box, attr):
+                    if prefix:
+                        box.meta += prefix[i]
+                    attr = getattr(box, attr)
+                    if isinstance(attr, float):
+                        box.meta += "{:.1f}".format(attr)
+                    else:
+                        box.meta += str(attr)
+                    if suffix:
+                        box.meta += suffix[i]
+                    box.meta += ", "
+                else:
+                    raise ValueError("Box does not have attribute " + attr)
+            box.meta = box.meta[:-2]  # remove trailing comma and space
 
     @staticmethod
     def project_to_img(boxes, img, lidar2img_rt=np.ones(4), lut=None, outline_only=False, thickness=3):

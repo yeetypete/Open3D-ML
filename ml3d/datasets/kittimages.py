@@ -368,6 +368,7 @@ class Object3d(BEVBox3D):
         self.box2d = np.array((float(label[4]), float(label[5]), float(
             label[6]), float(label[7])),
                               dtype=np.float32)
+        self.cam_name = 'CAM2'
 
         class_name = label[0] if label[0] in KITTImages.get_label_to_names().values(
         ) else 'DontCare'

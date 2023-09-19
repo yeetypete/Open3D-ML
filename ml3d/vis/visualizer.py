@@ -12,6 +12,7 @@ from .labellut import *
 
 import time
 
+
 class Model:
     """The class that helps build visualization models based on attributes,
     data, and methods.
@@ -265,7 +266,7 @@ class DataModel(Model):
                 Model.BoundingBoxData(name, self._name2srcdata[name]['bounding_boxes']))
             
         if 'cams' in self._name2srcdata[name]:
-            for _, val in self._name2srcdata[name]['cams'].items():
+            for cam_name, val in self._name2srcdata[name]['cams'].items():
                 lidar2img_rt = val['lidar2img_rt']
                 bbox_data = self._name2srcdata[name]['bounding_boxes']
                 img_shape = val['img'].shape
@@ -277,17 +278,15 @@ class DataModel(Model):
                 bbox_3d_img = BoundingBox3D.project_to_img(
                     bbox_data, np.copy(val['img']), lidar2img_rt, thickness=thickness)
                 val['bbox_3d'] = bbox_3d_img
-                
-                if hasattr(bbox_data[0], 'box2d'):
-                    bbox_2d_img = BoundingBox3D.plot_bbox_on_img(
-                        bbox_data, np.copy(val['img']), thickness=thickness)
-                    val['bbox_2d'] = bbox_2d_img
 
-                else:
-                    bbox_2d_img = BoundingBox3D.project_to_img(
-                        bbox_data, np.copy(val['img']), lidar2img_rt, outline_only=True, thickness=thickness)
-                    val['bbox_2d'] = bbox_2d_img
+                # TODO: merge plot_bbox_on_img and project_to_img
+                bbox_2d_proj = BoundingBox3D.project_to_img(
+                    bbox_data, np.copy(val['img']), lidar2img_rt, outline_only=True, thickness=thickness)
+                val['bbox_3d_outline'] = bbox_2d_proj
 
+                bbox_2d_img = BoundingBox3D.plot_bbox_on_img(
+                        bbox_data, np.copy(val['img']), cam_name, thickness=thickness)
+                val['bbox_2d'] = bbox_2d_img
             self.create_cams(name, self._name2srcdata[name]['cams'], update=True)
 
     def unload(self, name):
@@ -856,21 +855,18 @@ class Visualizer:
         self.window.add_child(self._3d)
 
         self._panel = gui.Vert()
-        # self._proxy_panel = gui.WidgetProxy()
-        # self._proxy_panel.set_widget(self._panel)
         self.window.add_child(self._panel)
-        # self.window.add_child(self._proxy_panel)
         self.popout_window = None
-        
-        # if gui.Application.instance.menubar is None:
-        #     menubar = gui.Menu()
-        #     menu = gui.Menu()
-        #     self._MENU_SHOW_PANEL = 1
-        #     menu.add_item("Show Panel", self._MENU_SHOW_PANEL)
-        #     menu.set_checked(self._MENU_SHOW_PANEL, True)
-        #     menubar.add_menu("Options", menu)
-        #     gui.Application.instance.menubar = menubar
-        #     self.window.set_on_menu_item_activated(self._MENU_SHOW_PANEL, self._on_menu_show_panel)
+        self._MENU_SHOW_PANEL = 1
+
+        if gui.Application.instance.menubar is None:
+            menubar = gui.Menu()
+            settings_menu = gui.Menu()
+            settings_menu.add_item("Show Panel", self._MENU_SHOW_PANEL)
+            settings_menu.set_checked(self._MENU_SHOW_PANEL, True)
+            menubar.add_menu("Settings", settings_menu)
+            gui.Application.instance.menubar = menubar
+            self.window.set_on_menu_item_activated(self._MENU_SHOW_PANEL, self._on_menu_toggle_panel)
 
         indented_margins = gui.Margins(em, 0, em, 0)
 
@@ -955,7 +951,7 @@ class Visualizer:
 
         # ... select image mode
         self._img_mode = gui.Combobox()
-        img_modes = ["raw", "bbox_3d", "bbox_2d"]
+        img_modes = ["raw", "bbox_3d", "bbox_3d_outline", "bbox_2d"]
 
         for item in img_modes:
             self._img_mode.add_item(item)
@@ -1519,24 +1515,25 @@ class Visualizer:
 
     def _on_layout(self, context=None):
         frame = self.window.content_rect
+        self._3d.frame = frame
         em = self.window.theme.font_size
-        panel_width = 35 * em  #20 * em
+        panel_width = 35 * em #20 * em
         panel_rect = gui.Rect(frame.get_right() - panel_width, frame.y,
                               panel_width, frame.height - frame.y)
         self._panel.frame = panel_rect
-        self._3d.frame = gui.Rect(frame.x, frame.y, panel_rect.x - frame.x,
-                                  frame.height - frame.y)
+        # self._3d.frame = gui.Rect(frame.x, frame.y, panel_rect.x - frame.x,
+        #                     frame.height - frame.y)
         
     def _on_close(self):
         if self.popout_window is not None:
             self.popout_window.close()
         return True
     
-    def _on_menu_show_panel(self):
+    def _on_menu_toggle_panel(self):
+        self._panel.visible = not self._panel.visible
         gui.Application.instance.menubar.set_checked(
-            self._MENU_SHOW_PANEL,
-            not gui.Application.instance.menubar.is_checked(
-                self._MENU_SHOW_PANEL))
+            self._MENU_SHOW_PANEL, self._panel.visible)
+        self.window.post_redraw()
         
     def _on_arcball_mode(self):
         self._3d.set_view_controls(gui.SceneWidget.ROTATE_CAMERA)
@@ -1659,10 +1656,12 @@ class Visualizer:
         self.popout_window = gui.Application.instance.create_window(
             "Popout", window_shape[0], window_shape[1])
         w = self.popout_window
+        w.show_menu(False)
         w.set_on_close(self._on_popout_close)
         em = w.theme.font_size
         indented_margins = gui.Margins(0, 0, 0, 0)
         
+        # TODO: try calc_preferred_size() instead of above
         layout = gui.Vert(0, indented_margins)
         cam_grid = gui.VGrid(cols, 0, indented_margins)  # change no. of cam_grid columns here
 
@@ -1703,7 +1702,16 @@ class Visualizer:
                                               self._objects._data[n]['cams'],
                                               key='bbox_3d',
                                               update=False)
-        elif idx == 2:  # or name == 'bbox_2d'
+                    
+        elif idx == 2: # or name == 'bbox_3d_outline'
+            for n in self._objects.data_names:
+                if self._objects.is_loaded(n):
+                    self._objects.create_cams(n,
+                                              self._objects._data[n]['cams'],
+                                              key='bbox_3d_outline',
+                                              update=False)
+
+        elif idx == 3:  # or name == 'bbox_2d'
             for n in self._objects.data_names:
                 if self._objects.is_loaded(n):
                     self._objects.create_cams(n,
@@ -1847,7 +1855,7 @@ class Visualizer:
                           split,
                           indices=None,
                           width=1280,
-                          height=768):
+                          height=800):
         """Visualize a dataset.
 
         Example:
@@ -1880,7 +1888,7 @@ class Visualizer:
                   lut=None,
                   bounding_boxes=None,
                   width=1280,
-                  height=768):
+                  height=800):
         """Visualize a custom point cloud data.
 
         Example:
