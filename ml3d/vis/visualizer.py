@@ -1523,8 +1523,10 @@ class Visualizer:
         self._3d.frame = frame
         em = self.window.theme.font_size
         panel_width = 35 * em #20 * em
+        # panel_rect = gui.Rect(frame.get_right() - panel_width, frame.y,
+        #                       panel_width, frame.height - frame.y)
         panel_rect = gui.Rect(frame.get_right() - panel_width, frame.y,
-                              panel_width, frame.height - frame.y)
+                              panel_width, frame.height)
         self._panel.frame = panel_rect
         # self._3d.frame = gui.Rect(frame.x, frame.y, panel_rect.x - frame.x,
         #                     frame.height - frame.y)
