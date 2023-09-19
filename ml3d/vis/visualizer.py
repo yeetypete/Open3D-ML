@@ -256,6 +256,8 @@ class DataModel(Model):
 
     def load(self, name, fail_if_no_space=False):
         """Load a pointcloud based on the name provided."""
+        assert (name in self._name2srcdata)
+
         if self.is_loaded(name):
             return True
         
@@ -289,7 +291,7 @@ class DataModel(Model):
                 val['bbox_2d'] = bbox_2d_img
 
             self.create_cams(name, self._name2srcdata[name]['cams'], update=True)
-
+        return True
     def unload(self, name):
         """Unload a pointcloud."""
         pass
@@ -1211,7 +1213,6 @@ class Visualizer:
         self.window.show_dialog(progress_dlg.dialog)
         thr = threading.Thread(target=load_thread)
         thr.start()
-        thr.join() # load one at a time
 
     def _load_geometries(self, names, ui_done_callback):
         # Progress has: len(names) items + ui_done_callback
