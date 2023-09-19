@@ -280,13 +280,14 @@ class DataModel(Model):
                 val['bbox_3d'] = bbox_3d_img
 
                 # TODO: merge plot_bbox_on_img and project_to_img
-                bbox_2d_proj = BoundingBox3D.project_to_img(
+                bbox_3d_outline = BoundingBox3D.project_to_img(
                     bbox_data, np.copy(val['img']), lidar2img_rt, outline_only=True, thickness=thickness)
-                val['bbox_3d_outline'] = bbox_2d_proj
+                val['bbox_3d_outline'] = bbox_3d_outline
 
                 bbox_2d_img = BoundingBox3D.plot_bbox_on_img(
                         bbox_data, np.copy(val['img']), cam_name, thickness=thickness)
                 val['bbox_2d'] = bbox_2d_img
+
             self.create_cams(name, self._name2srcdata[name]['cams'], update=True)
 
     def unload(self, name):
@@ -378,11 +379,13 @@ class DatasetModel(Model):
         self.create_point_cloud(data)
 
         if 'bounding_boxes' in data:
+            # enable metainfo
+            BoundingBox3D.enable_meta(data['bounding_boxes'], attrs=['label_class', 'dis_to_cam'], format=['{}', '{:.1f}m'])
             self.bounding_box_data.append(
                 Model.BoundingBoxData(name, data['bounding_boxes']))
 
         if 'cams' in data:
-            for _, val in data['cams'].items():
+            for cam_name, val in data['cams'].items():
                 lidar2img_rt = val['lidar2img_rt']
                 bbox_data = data['bounding_boxes']
                 img_shape = val['img'].shape
@@ -394,16 +397,15 @@ class DatasetModel(Model):
                 bbox_3d_img = BoundingBox3D.project_to_img(
                     bbox_data, np.copy(val['img']), lidar2img_rt, thickness=thickness)
                 val['bbox_3d'] = bbox_3d_img
-                
-                if hasattr(bbox_data[0], 'box2d'):
-                    bbox_2d_img = BoundingBox3D.plot_bbox_on_img(
-                        bbox_data, np.copy(val['img']), thickness=thickness)
-                    val['bbox_2d'] = bbox_2d_img
 
-                else:
-                    bbox_2d_img = BoundingBox3D.project_to_img(
-                        bbox_data, np.copy(val['img']), lidar2img_rt, outline_only=True, thickness=thickness)
-                    val['bbox_2d'] = bbox_2d_img
+                # TODO: merge plot_bbox_on_img and project_to_img
+                bbox_3d_outline = BoundingBox3D.project_to_img(
+                    bbox_data, np.copy(val['img']), lidar2img_rt, outline_only=True, thickness=thickness)
+                val['bbox_3d_outline'] = bbox_3d_outline
+
+                bbox_2d_img = BoundingBox3D.plot_bbox_on_img(
+                    bbox_data, np.copy(val['img']), cam_name, thickness=thickness)
+                val['bbox_2d'] = bbox_2d_img
 
             self.create_cams(data['name'], data['cams'], update=True)
 
@@ -1207,7 +1209,9 @@ class Visualizer:
                 self.window, self.window.close_dialog)
 
         self.window.show_dialog(progress_dlg.dialog)
-        threading.Thread(target=load_thread).start()
+        thr = threading.Thread(target=load_thread)
+        thr.start()
+        thr.join() # load one at a time
 
     def _load_geometries(self, names, ui_done_callback):
         # Progress has: len(names) items + ui_done_callback
@@ -1643,7 +1647,7 @@ class Visualizer:
         
         # calculate optimal window shape
         cols = 2
-        window_shape = [800, 600]
+        window_shape = [1000, 800]
         if (hasattr(self, '_cam_names')):
             n_cams = len(self._cam_names)
             if n_cams < 4:
@@ -1758,7 +1762,6 @@ class Visualizer:
                 self._3d.scene.show_geometry(name, False)
 
     def _check_bw_lims(self):
-        # BUG: does not load more than 1 geometry at a time
         for i in range(self._lower_val.int_value,
                        self._upper_val.int_value + 1):
             name = self._objects.data_names[i]

@@ -310,28 +310,28 @@ class BoundingBox3D:
         return np.array(img_pil).astype(np.uint8)
     
     @staticmethod
-    def enable_meta(boxes, attrs=[], prefix=[], suffix=[]):
+    def enable_meta(boxes, attrs=[], format=[]):
         """Enables meta information for the boxes."""
+        
+        if not attrs:
+            return
+
+        if len(attrs) != len(format):
+            raise ValueError("Length of attrs and formats should be the same.")
+        
         for box in boxes:
             box.show_meta = True
-            if not attrs:
-                continue
-            box.meta = ""
-            for i, attr in enumerate(attrs):
+            box.meta = []
+            
+            for attr, fmt in zip(attrs, format):
                 if hasattr(box, attr):
-                    if prefix:
-                        box.meta += prefix[i]
-                    attr = getattr(box, attr)
-                    if isinstance(attr, float):
-                        box.meta += "{:.1f}".format(attr)
-                    else:
-                        box.meta += str(attr)
-                    if suffix:
-                        box.meta += suffix[i]
-                    box.meta += ", "
+                    value = getattr(box, attr)
+                    formatted_value = fmt.format(value)
+                    box.meta.append(formatted_value)
                 else:
                     raise ValueError("Box does not have attribute " + attr)
-            box.meta = box.meta[:-2]  # remove trailing comma and space
+            
+            box.meta = ", ".join(box.meta)
 
     @staticmethod
     def project_to_img(boxes, img, lidar2img_rt=np.ones(4), lut=None, outline_only=False, thickness=3):
