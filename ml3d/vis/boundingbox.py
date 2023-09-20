@@ -405,12 +405,12 @@ class BoundingBox3D:
                 1.0), i.e. white.
             thickness (int, optional): The thickness of bboxes. Default: 1.
         """
-        # TODO: use to_kitti_format() to get 2d bbox first
+        # TODO: use to_kitti_format() to get 2d bbox
         img_pil = Image.fromarray(img)
         draw = ImageDraw.Draw(img_pil)
 
         if color is None:
-            color = (1.0, 1.0, 1.0)
+            color = [1.0, 1.0, 1.0]
         
         for i in range(num_rects):
             corners = rect_corners[i].astype(int)
@@ -427,8 +427,8 @@ class BoundingBox3D:
                 max_y > interesting_corners_scale * img.shape[0]):
                 continue
             
-            c = tuple(color[0][0] * 255) # hack
-            c = tuple([int(x) for x in c])
+            c = color[-1,-1]
+            c = tuple([int(255 * x) for x in c])
 
             # Draw the bounding rectangle
             draw.rectangle([(min_x, min_y), (max_x, max_y)], outline=c, width=thickness)
