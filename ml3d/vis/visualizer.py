@@ -1583,8 +1583,8 @@ class Visualizer:
         if 'use_camera' in self._modality and self._modality['use_camera']:
             for cam in self._cam_names:
                 self._img[cam].update_image(
-                    self._objects.tcams[self._animation_frames[idx]][cam])
             
+                    self._objects.tcams[self._animation_frames[idx]][cam])
             # update popout window
             if self.popout_window is not None:
                 for cam in self._cam_names:
@@ -1676,7 +1676,7 @@ class Visualizer:
         w.add_child(layout)
         self._popout_img = dict()
 
-        idx = (self._slider.int_value + 1) % len(self._animation_frames)
+        idx = self._slider.int_value
         if hasattr(self, '_cam_names'):
             for cam in self._cam_names:
                 self._popout_img[cam] = gui.ImageWidget(o3d.t.geometry.Image())
@@ -1725,7 +1725,7 @@ class Visualizer:
                                               self._objects._data[n]['cams'],
                                               key='bbox_2d',
                                               update=False)
-            
+        
         idx = self._slider.int_value
         for cam in self._cam_names:
             self._img[cam].update_image(
