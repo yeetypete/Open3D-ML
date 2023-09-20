@@ -1725,6 +1725,18 @@ class Visualizer:
                                               self._objects._data[n]['cams'],
                                               key='bbox_2d',
                                               update=False)
+            
+        idx = self._slider.int_value
+        for cam in self._cam_names:
+            self._img[cam].update_image(
+                self._objects.tcams[self._animation_frames[idx]][cam])
+        
+        # update popout window
+        if self.popout_window is not None:
+            for cam in self._cam_names:
+                self._popout_img[cam].update_image(
+                    self._objects.tcams[self._animation_frames[idx]][cam])
+            self.popout_window.post_redraw() # redraw popout window
 
     def _on_bgcolor_changed(self, new_color):
         bg_color = [
