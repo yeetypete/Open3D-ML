@@ -170,6 +170,9 @@ class BoundingBox3D:
                 else:
                     c = (0.5, 0.5, 0.5)  # Grey
 
+                if hasattr(box, 'is_fusion') and box.is_fusion:
+                    c = (1.0, 0.5, 0.0) # orange
+
             colors[idx:idx +
                    nlines] = c  # copies c to each element in the range
         if out_format == "lineset":
@@ -244,6 +247,9 @@ class BoundingBox3D:
                 else:
                     c = (0.5, 0.5, 0.5)  # Grey
 
+                if hasattr(box, 'is_fusion') and box.is_fusion:
+                    c = (1.0, 0.5, 0.0) # orange
+
             cov_mesh.paint_uniform_color(c)
             mesh += cov_mesh
         mesh.compute_vertex_normals()
@@ -282,6 +288,10 @@ class BoundingBox3D:
                     c = (1.0, 0., 0.)  # Prediction: red
                 else:
                     c = (0.5, 0.5, 0.5)  # Grey
+                    
+                if hasattr(box, 'is_fusion') and box.is_fusion:
+                    c = (1.0, 0.5, 0.0) # orange
+
             c = tuple([int(255 * x) for x in c])
             draw.rectangle(bbox, outline=c, width=thickness)
             if box.show_meta and box.confidence >= 0 and box.confidence <= 1.0:
