@@ -3,6 +3,9 @@ import open3d as o3d
 from PIL import Image, ImageDraw, ImageFont
 import numpy.typing as npt
 from matplotlib import font_manager
+from typing import Optional, List, Tuple
+import matplotlib.pyplot as plt
+import time
 
 class BoundingBox3D:
     """Class that defines an axially-oriented bounding box."""
@@ -23,7 +26,8 @@ class BoundingBox3D:
                 show_meta=None,
                 identifier=None,
                 arrow_length=1.0,
-                center_cov=np.zeros((3,3))):
+                center_cov=np.zeros((3,3)),
+                **kwargs):
         """Creates a bounding box.
 
         Front, up, left define the axis of the box and must be normalized and
@@ -59,6 +63,9 @@ class BoundingBox3D:
         assert (len(left) == 3)
         assert (len(size) == 3)
         assert (center_cov.shape == (3,3))
+
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
         self.center = np.array(center, dtype="float32")
         self.front = np.array(front, dtype="float32")
@@ -212,7 +219,7 @@ class BoundingBox3D:
             # continue if cov is <= reg
 
             if not is_valid_cov(cov, reg=reg):
-                raise ValueError("Invalid covariance matrix")
+                raise ValueError(f"Invalid covariance matrix {cov}")
             if np.allclose(cov, 0, atol=reg):
                 continue
 
@@ -498,3 +505,48 @@ class BoundingBox3D:
                     pt2 = (corners[end, 0], corners[end, 1])
                 draw.line([pt1, pt2], fill=c, width=thickness)
         return np.array(img_pil).astype(np.uint8)
+
+    @staticmethod
+    def plot_pcd_on_img(img,
+                        pcd,
+                        lidar2cam,
+                        size=1, alpha=1.0, change_color_interval=1):
+        """Plot point cloud on 2D images as points."""
+        
+        def _project_pcd_img(pcd: npt.NDArray, lidar2img: npt.NDArray, a_min: Optional[float]=1e-6, a_max: Optional[float]=1e6) -> npt.NDArray:
+            pcd_hom = np.ones((pcd.shape[0], 4))
+            pcd_hom[:, :3] = pcd[:, :3]
+            pcd_img = pcd_hom @ lidar2img.T
+            clip = np.clip(pcd_img[:, 2], a_min=a_min, a_max=a_max) # avoid division by zero
+            pcd_img[:, 0] /= clip
+            pcd_img[:, 1] /= clip
+            return pcd_img
+
+        pcd_img = _project_pcd_img(pcd, lidar2cam)
+        # filter out points outside the image
+        pcd_img = pcd_img[
+            (pcd_img[:, 2] > 0) &
+            (pcd_img[:, 0] > 0) & (pcd_img[:, 0] < img.shape[1]) &
+            (pcd_img[:, 1] > 0) & (pcd_img[:, 1] < img.shape[0])]
+                
+        # use cyclic colormap to colorize depth
+        depth = pcd_img[:, 2]
+        cm = plt.get_cmap("hsv")
+        depth_norm = depth % change_color_interval / change_color_interval
+        depth_norm = (depth_norm * (cm.N - 1)).astype(np.uint8)
+        colors = cm(depth_norm)
+        colors = (colors * 255).astype(np.uint8)
+        colors[:,3] = int(alpha * 255)
+
+        img_rgba = Image.fromarray(img).convert("RGBA")
+        overlay = Image.new("RGBA", img_rgba.size, (0,0,0,0))
+        draw = ImageDraw.Draw(overlay)
+
+        for i in range(pcd_img.shape[0]):
+            x, y = pcd_img[i, :2]
+            draw.ellipse([(x-size, y-size), (x+size, y+size)], fill=tuple(colors[i]))
+        
+        composite = Image.alpha_composite(img_rgba, overlay)
+        img_rgb = composite.convert("RGB")
+        
+        return np.array(img_rgb).astype(np.uint8)

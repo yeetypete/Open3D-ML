@@ -143,6 +143,18 @@ class KITTImages(BaseDataset):
         Returns:
             The data objects with bound boxes information.
         """
+        def str_to_cov(s):
+            values = list(map(float, s.split()))
+            
+            if len(values) != 6:
+                raise ValueError("Input string must have 6 space-separated values.")
+            
+            a, b, c, d, e, f = values
+            
+            return np.array([[a, b, c],
+                            [b, d, e],
+                            [c, e, f]])
+        
         if not Path(path).exists():
             return []
 
@@ -163,7 +175,14 @@ class KITTImages(BaseDataset):
             size = [float(label[9]), float(label[8]), float(label[10])]  # w,h,l
             center = [points[0], points[1], size[1] / 2 + points[2]]
 
-            objects.append(Object3d(center, size, label, calib))
+            obj3d = Object3d(center, size, label, calib)
+            if len(label) > 16: # add center covariance if available
+                cov_str = ' '.join(label[16:22])
+                center_cov = str_to_cov(cov_str)
+                cam_world = np.linalg.inv(calib['world_cam'])
+                center_cov = cam_world[:3,:3].T @ center_cov @ cam_world[:3,:3]
+                obj3d.center_cov = center_cov            
+            objects.append(obj3d)
 
         return objects
 
@@ -322,8 +341,9 @@ class KITTImagesSplit():
                          'lidar2img_rt': lidar2img_rt,
                          'cam_intrinsic': cam_intrinsic}}
         
+        img_shape = cams['CAM2']['img'].shape[:2]
         reduced_pc = DataProcessing.remove_outside_points(
-            pc, calib['world_cam'], calib['cam_img'], [375, 1242])
+            pc, calib['world_cam'], calib['cam_img'], img_shape)
 
         data = {
             'point': reduced_pc,
@@ -350,7 +370,7 @@ class Object3d(BEVBox3D):
     """
 
     def __init__(self, center, size, label, calib=None):
-        confidence = float(label[15]) if label.__len__() == 16 else -1.0
+        confidence = float(label[15]) if label.__len__() >=16 else -1.0
 
         world_cam = calib['world_cam']
         cam_img = calib['cam_img']
@@ -370,8 +390,9 @@ class Object3d(BEVBox3D):
                               dtype=np.float32)
         self.cam_name = 'CAM2'
 
-        class_name = label[0] if label[0] in KITTImages.get_label_to_names().values(
-        ) else 'DontCare'
+        # class_name = label[0] if label[0] in KITTImages.get_label_to_names().values(
+        # ) else 'DontCare'
+        class_name = label[0]
 
         super().__init__(center, size, yaw, class_name, confidence, world_cam,
                          cam_img)

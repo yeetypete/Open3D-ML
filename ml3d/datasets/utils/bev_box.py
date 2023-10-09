@@ -64,7 +64,9 @@ class BEVBox3D(BoundingBox3D):
         # TODO: calculate truncation, occlusion
         
         box2d = self.to_img()
-        box2d[2:] += box2d[:2]  # Add w, h.
+        center, size = box2d[:2], box2d[2:]
+        box2d = np.concatenate([center - size / 2, center + size / 2]) # left, top, right, bottom
+        assert box2d[0] <= box2d[2] and box2d[1] <= box2d[3]
         truncation = -1
         occlusion = -1
         box = self.to_camera()
@@ -155,6 +157,13 @@ class BEVBox3D(BoundingBox3D):
         """
         if self.cam_img is None:
             return None
+        
+        if getattr(self, 'box2d', None) is not None:
+            box2d = np.array(self.box2d) # convert to center, size
+            x1, y1, x2, y2 = box2d
+            center = np.array([(x1 + x2) / 2, (y1 + y2) / 2])
+            size = np.array([x2 - x1, y2 - y1])
+            return np.concatenate([center, size])
 
         corners = self.generate_corners3d()
         corners = np.concatenate(
@@ -214,6 +223,40 @@ class BEVBox3D(BoundingBox3D):
 
         for i in range(len(bboxes)):
             box_dict = bboxes[i].to_dict()
+            for k in box_dict:
+                box_dicts[k][i] = box_dict[k]
+
+        return box_dicts
+
+    def to_dict_2d(self):
+        """Convert data for evaluation:"""
+        dict2d = {
+            'bbox': self.to_img(),
+            'label': self.label_class,
+            'score': self.confidence,
+            'difficulty': self.level
+        }
+        if getattr(self, 'dis_to_cam', None) is not None:
+            dict2d['dis_to_cam'] = self.dis_to_cam
+        return dict2d
+    
+    @staticmethod
+    def to_dicts_2d(bboxes):
+        """Convert data for evaluation:
+
+        Args:
+            bboxes: List of BEVBox3D bboxes.
+        """
+        box_dicts = {
+            'bbox': np.empty((len(bboxes), 4)),
+            'label': np.empty((len(bboxes),), dtype='<U20'),
+            'score': np.empty((len(bboxes),)),
+            'difficulty': np.empty((len(bboxes),)),
+            'dis_to_cam': np.ones((len(bboxes),)) * -1 # default value
+        }
+
+        for i in range(len(bboxes)):
+            box_dict = bboxes[i].to_dict_2d()
             for k in box_dict:
                 box_dicts[k][i] = box_dict[k]
 

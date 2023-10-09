@@ -1,5 +1,6 @@
 import numpy as np
 from . import iou_bev, iou_3d
+from sklearn.metrics import precision_score, recall_score
 
 
 def filter_data(data, labels, diffs=None):
@@ -262,3 +263,112 @@ def mAP(pred,
                 mAP[i, j] = np.sum(prec[::4]) / int(samples / 4 + 1) * 100
 
     return mAP
+
+def iou_2d(box1, box2):
+    """Computes IoU between two bounding boxes"""
+    l1, t1, r1, b1 = box1
+    l2, t2, r2, b2 = box2
+
+    left = max(l1, l2)
+    top = max(t1, t2)
+    right = min(r1, r2)
+    bottom = min(b1, b2)
+    if left >= right or top >= bottom:
+        return 0.0
+    
+    area_inter = (right - left) * (bottom - top)
+    area_1 = (r1 - l1) * (b1 - t1)
+    area_2 = (r2 - l2) * (b2 - t2)
+    area_union = area_1 + area_2 - area_inter
+    iou = area_inter / area_union
+    return iou
+
+def mAP_2d(pred,
+        target,
+        classes=[0],
+        difficulties=[0],
+        min_overlap=[0.5],
+        samples=41,
+        similar_classes={}):
+    """Computes mAP of the given prediction (11-point interpolation).
+
+    Args:
+        pred (dict): List of dictionaries with the prediction data (as numpy arrays).
+            {
+                'bbox':       [...],
+                'label':      [...],
+                'score':      [...],
+                'difficulty': [...]
+            }[]
+        target (dict): List of dictionaries with the target data (as numpy arrays).
+            {
+                'bbox':       [...],
+                'label':      [...],
+                'difficulty': [...]
+            }[]
+        classes (number[]): List of classes which should be evaluated.
+            Default is [0].
+        difficulties (number[]): List of difficulties which should evaluated.
+            Default is [0].
+        min_overlap (number[]): Minimal overlap required to match bboxes.
+            One entry for each class expected. Default is [0.5].
+        samples (number): Count of used samples for mAP calculation.
+            Default is 41.
+        similar_classes (dict): Assign classes to similar classes that were not part of the training data so that they are not counted as false negatives.
+            Default is {}.
+
+    Returns:
+        Returns the mAP for each class and difficulty specified.
+    """
+    all_aps = []
+
+    for idx, c in enumerate(classes):
+        # Extract ground truth and predictions for the class
+        gt_boxes = [item['bbox'][item['label'] == c] for item in target]
+        pred_boxes = [item['bbox'][item['label'] == c] for item in pred]
+        pred_scores = [item['score'][item['label'] == c] for item in pred]
+
+        # Flatten lists and sort predictions by score
+        pred_boxes = [bbox for sublist in pred_boxes for bbox in sublist]
+        pred_scores = [score for sublist in pred_scores for score in sublist]
+        sorted_indices = np.argsort(pred_scores)[::-1]
+        pred_boxes = [pred_boxes[i] for i in sorted_indices]
+
+        tp = np.zeros(len(pred_boxes))
+        fp = np.zeros(len(pred_boxes))
+        gt_detected = []
+
+        for i, pb in enumerate(pred_boxes):
+            max_iou = -np.inf
+            max_idx = -1
+            for j, gtb in enumerate(gt_boxes):
+                iou = iou_2d(pb, gtb)
+                if iou > max_iou:
+                    max_iou = iou
+                    max_idx = j
+            if max_iou >= min_overlap[idx] and max_idx not in gt_detected:
+                tp[i] = 1
+                gt_detected.append(max_idx)
+            else:
+                fp[i] = 1
+
+        tp_cumsum = np.cumsum(tp)
+        fp_cumsum = np.cumsum(fp)
+
+        recalls = tp_cumsum / len(gt_boxes)
+        precisions = tp_cumsum / (tp_cumsum + fp_cumsum)
+
+        recalls = np.insert(recalls, 0, 0)
+        recalls = np.append(recalls, 1)
+        precisions = np.insert(precisions, 0, 1)
+        precisions = np.append(precisions, 0)
+
+        for i in range(len(precisions) - 2, -1, -1):
+            precisions[i] = max(precisions[i], precisions[i + 1])
+
+        recall_samples = np.linspace(0, 1, samples)
+        interpolated_precisions = np.interp(recall_samples, recalls, precisions)
+        ap = np.mean(interpolated_precisions)
+        all_aps.append(ap)
+
+    return np.mean(all_aps)

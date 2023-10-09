@@ -290,6 +290,12 @@ class DataModel(Model):
                         bbox_data, np.copy(val['img']), cam_name, thickness=thickness)
                 val['bbox_2d'] = bbox_2d_img
 
+                # plot lidar points on image
+                pcd = np.asarray(self._name2srcdata[name]['points'])
+                size = math.ceil(min(img_shape[0], img_shape[1]) / 300)
+                img_lidar = BoundingBox3D.plot_pcd_on_img(np.copy(val['img']), pcd, lidar2img_rt, size=size, alpha=0.4, change_color_interval=5.0)
+                val['img_lidar'] = img_lidar
+
             self.create_cams(name, self._name2srcdata[name]['cams'], update=True)
         return True
     def unload(self, name):
@@ -408,6 +414,12 @@ class DatasetModel(Model):
                 bbox_2d_img = BoundingBox3D.plot_bbox_on_img(
                     bbox_data, np.copy(val['img']), cam_name, thickness=thickness)
                 val['bbox_2d'] = bbox_2d_img
+
+                # plot lidar points on image
+                pcd = np.asarray(data['points'])
+                size = math.ceil(min(img_shape[0], img_shape[1]) / 300)
+                img_lidar = BoundingBox3D.plot_pcd_on_img(np.copy(val['img']), pcd, lidar2img_rt, size=size, alpha=0.4, change_color_interval=5.0)
+                val['img_lidar'] = img_lidar
 
             self.create_cams(data['name'], data['cams'], update=True)
 
@@ -955,7 +967,7 @@ class Visualizer:
 
         # ... select image mode
         self._img_mode = gui.Combobox()
-        img_modes = ["raw", "bbox_3d", "bbox_3d_outline", "bbox_2d"]
+        img_modes = ["raw", "bbox_3d", "bbox_3d_outline", "bbox_2d", "img_lidar"]
 
         for item in img_modes:
             self._img_mode.add_item(item)
@@ -973,7 +985,6 @@ class Visualizer:
         self._slider_current = gui.Label("")
         grid.add_child(gui.Label("Showing"))
         grid.add_child(self._slider_current)
-
 
         v.add_fixed(em)
         
@@ -1650,7 +1661,7 @@ class Visualizer:
         
         # calculate optimal window shape
         cols = 2
-        window_shape = [1000, 800]
+        window_shape = [800, 800]
         if (hasattr(self, '_cam_names')):
             n_cams = len(self._cam_names)
             if n_cams < 4:
@@ -1724,6 +1735,14 @@ class Visualizer:
                     self._objects.create_cams(n,
                                               self._objects._data[n]['cams'],
                                               key='bbox_2d',
+                                              update=False)
+                    
+        elif idx == 4: # or name == 'img_lidar'
+            for n in self._objects.data_names:
+                if self._objects.is_loaded(n):
+                    self._objects.create_cams(n,
+                                              self._objects._data[n]['cams'],
+                                              key='img_lidar',
                                               update=False)
         
         idx = self._slider.int_value
