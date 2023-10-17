@@ -168,7 +168,7 @@ class NuScenes(BaseDataset):
             # obtain lidar to image transformation matrix
             lidar2img_rt = (viewpad @ lidar2cam_rt.T)
 
-            res_dict[cam]['lidar2cam_rt'] = lidar2cam_rt.T
+            res_dict[cam]['lidar2cam_rt'] = lidar2cam_rt.T # added .T TODO: fix upstream code
             res_dict[cam]['lidar2img_rt'] = lidar2img_rt
             res_dict[cam]['cam_intrinsic'] = cam_dict[cam]['cam_intrinsic']
 

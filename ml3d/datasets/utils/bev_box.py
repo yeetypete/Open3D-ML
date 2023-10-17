@@ -227,37 +227,83 @@ class BEVBox3D(BoundingBox3D):
                 box_dicts[k][i] = box_dict[k]
 
         return box_dicts
-
-    def to_dict_2d(self):
-        """Convert data for evaluation:"""
-        dict2d = {
-            'bbox': self.to_img(),
-            'label': self.label_class,
-            'score': self.confidence,
-            'difficulty': self.level
-        }
-        if getattr(self, 'dis_to_cam', None) is not None:
-            dict2d['dis_to_cam'] = self.dis_to_cam
-        return dict2d
     
     @staticmethod
-    def to_dicts_2d(bboxes):
+    def to_dicts_2d(bboxes, img_shape):
         """Convert data for evaluation:
 
         Args:
             bboxes: List of BEVBox3D bboxes.
+            img_shape: Tuple (height, width) specifying the dimensions of the image.
         """
+
         box_dicts = {
-            'bbox': np.empty((len(bboxes), 4)),
-            'label': np.empty((len(bboxes),), dtype='<U20'),
-            'score': np.empty((len(bboxes),)),
-            'difficulty': np.empty((len(bboxes),)),
-            'dis_to_cam': np.ones((len(bboxes),)) * -1 # default value
+            'bbox': [],
+            'label': [],
+            'score': [],
+            'difficulty': [],
+            'dis_to_cam': [],
+            'rel_error': [],
+            'is_fusion': [],
+            'center_cov': []
         }
 
-        for i in range(len(bboxes)):
-            box_dict = bboxes[i].to_dict_2d()
-            for k in box_dict:
-                box_dicts[k][i] = box_dict[k]
+        for bbox in bboxes:
+            if hasattr(bbox, 'box2d'): # predictions have box2d
+                corners3d = bbox.generate_corners3d()
+                dist_corners = np.linalg.norm(corners3d, axis=1)
+                dis_to_cam = np.min(dist_corners)
+                box_dicts['bbox'].append(bbox.box2d)
+                box_dicts['label'].append(bbox.label_class)
+                box_dicts['score'].append(bbox.confidence)
+                box_dicts['difficulty'].append(bbox.level)
+                box_dicts['dis_to_cam'].append(dis_to_cam)
+                box_dicts['rel_error'].append(bbox.rel_error if hasattr(bbox, 'rel_error') else np.nan)
+                box_dicts['is_fusion'].append(bbox.is_fusion if hasattr(bbox, 'is_fusion') else np.nan)
+                box_dicts['center_cov'].append(bbox.center_cov if hasattr(bbox, 'center_cov') else np.zeros((3, 3)))
+                continue
+
+            # get 3D coodiantes of the box in camera space
+            box_camera = bbox.to_camera()
+            z_cord = box_camera[2]
+
+            # exclude boxes behind the camera
+            if z_cord < 0:
+                continue
+
+            # Extracting the 2D bounding box dimensions
+            box2d = bbox.to_img()
+            size, center = box2d[2:], box2d[:2]
+            print(box2d)
+            box2d = np.concatenate([center - size / 2, center + size / 2])
+            x1, y1, x2, y2 = box2d
+
+            # calculate shortest distance from box to camera
+            corners3d = bbox.generate_corners3d()
+            dist_corners = np.linalg.norm(corners3d, axis=1)
+            dis_to_cam = np.min(dist_corners)
+
+            # Check if the box is fully inside the image dimensions
+            if 0 <= x1 and x1 <= img_shape[1] and \
+                    0 <= x2 and x2 <= img_shape[1] and \
+                    0 <= y1 and y1 <= img_shape[0] and \
+                    0 <= y2 and y2 <= img_shape[0]:
+                # TODO: allow partially visible boxes
+                
+                box_dicts['bbox'].append(box2d)
+                box_dicts['label'].append(bbox.label_class)
+                box_dicts['score'].append(bbox.confidence)
+                box_dicts['difficulty'].append(bbox.level)
+                box_dicts['dis_to_cam'].append(dis_to_cam)
+                box_dicts['rel_error'].append(bbox.rel_error if hasattr(bbox, 'rel_error') else np.nan)
+                box_dicts['is_fusion'].append(bbox.is_fusion if hasattr(bbox, 'is_fusion') else np.nan)
+                box_dicts['center_cov'].append(bbox.center_cov if hasattr(bbox, 'center_cov') else np.zeros((3, 3)))
+
+        # Convert lists to numpy arrays for consistency
+        for k in box_dicts:
+            if k != 'label':
+                box_dicts[k] = np.array(box_dicts[k])
+            else:
+                box_dicts[k] = np.array(box_dicts[k], dtype='<U20')
 
         return box_dicts

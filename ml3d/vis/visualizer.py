@@ -276,7 +276,7 @@ class DataModel(Model):
                 # calculate a good thickness
                 thickness = math.ceil(
                     min(img_shape[0], img_shape[1]) / 200)
-                
+
                 bbox_3d_img = BoundingBox3D.project_to_img(
                     bbox_data, np.copy(val['img']), lidar2img_rt, thickness=thickness)
                 val['bbox_3d'] = bbox_3d_img

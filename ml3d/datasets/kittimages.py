@@ -10,6 +10,7 @@ import open3d as o3d
 from .base_dataset import BaseDataset, BaseDatasetSplit
 from ..utils import Config, make_dir, DATASET
 from .utils import DataProcessing, BEVBox3D
+import pandas as pd
 
 log = logging.getLogger(__name__)
 
@@ -181,7 +182,15 @@ class KITTImages(BaseDataset):
                 center_cov = str_to_cov(cov_str)
                 cam_world = np.linalg.inv(calib['world_cam'])
                 center_cov = cam_world[:3,:3].T @ center_cov @ cam_world[:3,:3]
-                obj3d.center_cov = center_cov            
+                obj3d.center_cov = center_cov
+            if len(label) == 23: # add fusion
+                rel_error = label[22]
+                if rel_error == "-0":
+                    obj3d.is_fusion = False
+                    obj3d.rel_error = None
+                else:
+                    obj3d.is_fusion = True
+                    obj3d.rel_error = float(rel_error)
             objects.append(obj3d)
 
         return objects
@@ -362,7 +371,6 @@ class KITTImagesSplit():
 
         attr = {'name': name, 'path': pc_path, 'split': self.split}
         return attr
-
 
 class Object3d(BEVBox3D):
     """The class stores details that are object-specific, such as bounding box

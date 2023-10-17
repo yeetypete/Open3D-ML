@@ -1,7 +1,6 @@
 import numpy as np
 from . import iou_bev, iou_3d
-from sklearn.metrics import precision_score, recall_score
-
+import torch
 
 def filter_data(data, labels, diffs=None):
     """Filters the data to fit the given labels and difficulties.
@@ -283,92 +282,78 @@ def iou_2d(box1, box2):
     iou = area_inter / area_union
     return iou
 
-def mAP_2d(pred,
-        target,
-        classes=[0],
-        difficulties=[0],
-        min_overlap=[0.5],
-        samples=41,
-        similar_classes={}):
-    """Computes mAP of the given prediction (11-point interpolation).
+def cvt_tensor(pred, target, classes=[0]):
+    filtered_pred, _ = filter_data(pred, classes)
+    filtered_target, _ = filter_data(target, classes)
 
-    Args:
-        pred (dict): List of dictionaries with the prediction data (as numpy arrays).
-            {
-                'bbox':       [...],
-                'label':      [...],
-                'score':      [...],
-                'difficulty': [...]
-            }[]
-        target (dict): List of dictionaries with the target data (as numpy arrays).
-            {
-                'bbox':       [...],
-                'label':      [...],
-                'difficulty': [...]
-            }[]
-        classes (number[]): List of classes which should be evaluated.
-            Default is [0].
-        difficulties (number[]): List of difficulties which should evaluated.
-            Default is [0].
-        min_overlap (number[]): Minimal overlap required to match bboxes.
-            One entry for each class expected. Default is [0.5].
-        samples (number): Count of used samples for mAP calculation.
-            Default is 41.
-        similar_classes (dict): Assign classes to similar classes that were not part of the training data so that they are not counted as false negatives.
-            Default is {}.
+    # convert classes to int values
+    filtered_pred['label'] = np.array([classes.index(l) for l in filtered_pred['label']])
+    filtered_target['label'] = np.array([classes.index(l) for l in filtered_target['label']])
 
-    Returns:
-        Returns the mAP for each class and difficulty specified.
-    """
-    all_aps = []
+    pred_t = dict(
+        boxes=torch.tensor(filtered_pred['bbox']),
+        scores=torch.tensor(filtered_pred['score']),
+        labels=torch.tensor(filtered_pred['label'])
+    )
 
-    for idx, c in enumerate(classes):
-        # Extract ground truth and predictions for the class
-        gt_boxes = [item['bbox'][item['label'] == c] for item in target]
-        pred_boxes = [item['bbox'][item['label'] == c] for item in pred]
-        pred_scores = [item['score'][item['label'] == c] for item in pred]
+    target_t = dict(
+        boxes=torch.tensor(filtered_target['bbox']),
+        labels=torch.tensor(filtered_target['label'])
+    )
 
-        # Flatten lists and sort predictions by score
-        pred_boxes = [bbox for sublist in pred_boxes for bbox in sublist]
-        pred_scores = [score for sublist in pred_scores for score in sublist]
-        sorted_indices = np.argsort(pred_scores)[::-1]
-        pred_boxes = [pred_boxes[i] for i in sorted_indices]
+    return pred_t, target_t
 
-        tp = np.zeros(len(pred_boxes))
-        fp = np.zeros(len(pred_boxes))
-        gt_detected = []
+def dist_error_2d(pred, target, min_overlap=0.5, classes=[0], diffs=None):
+    """Computes the dis_to_cam error between predicted and ground truth bounding boxes for each class"""
+    
+    filtered_pred, _ = filter_data(pred, classes)
+    filtered_target, _ = filter_data(target, classes, diffs)
+    
+    pred_dists = []
+    gt_dists = []
+    difficulties = []
+    labels = []
 
-        for i, pb in enumerate(pred_boxes):
-            max_iou = -np.inf
-            max_idx = -1
-            for j, gtb in enumerate(gt_boxes):
-                iou = iou_2d(pb, gtb)
-                if iou > max_iou:
-                    max_iou = iou
-                    max_idx = j
-            if max_iou >= min_overlap[idx] and max_idx not in gt_detected:
-                tp[i] = 1
-                gt_detected.append(max_idx)
-            else:
-                fp[i] = 1
+    for p_idx, p_box in enumerate(filtered_pred['bbox']):
+        best_iou = 0
+        best_t_idx = -1
+        
+        for t_idx, t_box in enumerate(filtered_target['bbox']):
+            current_iou = iou_2d(p_box, t_box)
+            if current_iou > best_iou:
+                best_iou = current_iou
+                best_t_idx = t_idx
+                
+        if best_iou >= min_overlap:
+            t_dist = filtered_target['dis_to_cam'][best_t_idx]
+            pred_dist = filtered_pred['dis_to_cam'][p_idx]
+            label = filtered_pred['label'][p_idx]
+            difficulty = filtered_target['difficulty'][best_t_idx]
 
-        tp_cumsum = np.cumsum(tp)
-        fp_cumsum = np.cumsum(fp)
+            pred_dists.append(pred_dist)
+            gt_dists.append(t_dist)
+            difficulties.append(difficulty)
+            labels.append(label)
+    
+    return np.array(pred_dists), np.array(gt_dists), np.array(difficulties), np.array(labels, dtype='<U20')
 
-        recalls = tp_cumsum / len(gt_boxes)
-        precisions = tp_cumsum / (tp_cumsum + fp_cumsum)
+def rel_error_2d(pred):
+    """Returns an array containing the relative error and dis_to_cam for each prediction"""
+    labels = np.unique(pred['label'])
+    error_dict = {}
 
-        recalls = np.insert(recalls, 0, 0)
-        recalls = np.append(recalls, 1)
-        precisions = np.insert(precisions, 0, 1)
-        precisions = np.append(precisions, 0)
+    for label in labels:
+        filtered_pred, _ = filter_data(pred, [label])
+        errors = []
+        dists = []
+        for p in filtered_pred:
+            if not np.isnan(p['dis_to_cam']) and not np.isnan(p['rel_error']):
+                lidar_dist = p['dis_to_cam']
+                rel_error = p['rel_error']
+                errors.append(rel_error)
+                dists.append(lidar_dist)
 
-        for i in range(len(precisions) - 2, -1, -1):
-            precisions[i] = max(precisions[i], precisions[i + 1])
-
-        recall_samples = np.linspace(0, 1, samples)
-        interpolated_precisions = np.interp(recall_samples, recalls, precisions)
-        ap = np.mean(interpolated_precisions)
-        all_aps.append(ap)
-
-    return np.mean(all_aps)
+        errors = np.array(errors)
+        dists = np.array(dists)
+        error_dict[label] = {'error': errors, 'fusion_dist': dists}
+    return error_dict
