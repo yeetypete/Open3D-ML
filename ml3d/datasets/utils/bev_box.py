@@ -260,7 +260,11 @@ class BEVBox3D(BoundingBox3D):
                 box_dicts['dis_to_cam'].append(dis_to_cam)
                 box_dicts['rel_error'].append(bbox.rel_error if hasattr(bbox, 'rel_error') else np.nan)
                 box_dicts['is_fusion'].append(bbox.is_fusion if hasattr(bbox, 'is_fusion') else np.nan)
-                box_dicts['center_cov'].append(bbox.center_cov if hasattr(bbox, 'center_cov') else np.zeros((3, 3)))
+                if hasattr(bbox, 'center_cov'):
+                    center_cov = bbox.world_cam[:3,:3] @ bbox.center_cov @ bbox.world_cam[:3,:3].T
+                else:
+                    center_cov = np.zeros((3, 3))
+                box_dicts['center_cov'].append(center_cov)
                 continue
 
             # get 3D coodiantes of the box in camera space
@@ -297,7 +301,11 @@ class BEVBox3D(BoundingBox3D):
                 box_dicts['dis_to_cam'].append(dis_to_cam)
                 box_dicts['rel_error'].append(bbox.rel_error if hasattr(bbox, 'rel_error') else np.nan)
                 box_dicts['is_fusion'].append(bbox.is_fusion if hasattr(bbox, 'is_fusion') else np.nan)
-                box_dicts['center_cov'].append(bbox.center_cov if hasattr(bbox, 'center_cov') else np.zeros((3, 3)))
+                if hasattr(bbox, 'center_cov'):
+                    center_cov = bbox.world_cam[:3,:3] @ bbox.center_cov @ bbox.world_cam[:3,:3].T
+                else:
+                    center_cov = np.zeros((3, 3))
+                box_dicts['center_cov'].append(center_cov)
 
         # Convert lists to numpy arrays for consistency
         for k in box_dicts:

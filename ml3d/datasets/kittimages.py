@@ -181,7 +181,7 @@ class KITTImages(BaseDataset):
                 cov_str = ' '.join(label[16:22])
                 center_cov = str_to_cov(cov_str)
                 cam_world = np.linalg.inv(calib['world_cam'])
-                center_cov = cam_world[:3,:3].T @ center_cov @ cam_world[:3,:3]
+                center_cov = cam_world[:3,:3] @ center_cov @ cam_world[:3,:3].T
                 obj3d.center_cov = center_cov
             if len(label) == 23: # add fusion
                 rel_error = label[22]

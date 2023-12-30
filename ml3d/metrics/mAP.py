@@ -313,6 +313,7 @@ def dist_error_2d(pred, target, min_overlap=0.5, classes=[0], diffs=None):
     gt_dists = []
     difficulties = []
     labels = []
+    center_cov = []
 
     for p_idx, p_box in enumerate(filtered_pred['bbox']):
         best_iou = 0
@@ -334,8 +335,9 @@ def dist_error_2d(pred, target, min_overlap=0.5, classes=[0], diffs=None):
             gt_dists.append(t_dist)
             difficulties.append(difficulty)
             labels.append(label)
+            center_cov.append(filtered_pred['center_cov'][p_idx])
     
-    return np.array(pred_dists), np.array(gt_dists), np.array(difficulties), np.array(labels, dtype='<U20')
+    return np.array(pred_dists), np.array(gt_dists), np.array(difficulties), np.array(labels, dtype='<U20'), np.array(center_cov)
 
 def rel_error_2d(pred):
     """Returns an array containing the relative error and dis_to_cam for each prediction"""
