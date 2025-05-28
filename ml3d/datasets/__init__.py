@@ -25,9 +25,27 @@ from .kittimages import KITTImages
 from .tumfacade import TUMFacade
 
 __all__ = [
-    'SemanticKITTI', 'S3DIS', 'Toronto3D', 'ParisLille3D', 'Semantic3D',
-    'Custom3D', 'utils', 'augment', 'samplers', 'KITTI', 'Waymo', 'NuScenes',
-    'Lyft', 'ShapeNet', 'SemSegRandomSampler', 'InferenceDummySplit',
-    'SemSegSpatiallyRegularSampler', 'Argoverse', 'Scannet', 'SunRGBD',
-    'MatterportObjects', 'KITTImages' 'TUMFacade'
+    "SemanticKITTI",
+    "S3DIS",
+    "Toronto3D",
+    "ParisLille3D",
+    "Semantic3D",
+    "Custom3D",
+    "utils",
+    "augment",
+    "samplers",
+    "KITTI",
+    "Waymo",
+    "NuScenes",
+    "Lyft",
+    "ShapeNet",
+    "SemSegRandomSampler",
+    "InferenceDummySplit",
+    "SemSegSpatiallyRegularSampler",
+    "Argoverse",
+    "Scannet",
+    "SunRGBD",
+    "MatterportObjects",
+    "KITTImages",
+    "TUMFacade",
 ]
