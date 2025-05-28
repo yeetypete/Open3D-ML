@@ -136,6 +136,11 @@ class SemanticSegmentation(BasePipeline):
         model.device = device
         model.eval()
 
+        preprocess_func = model.preprocess
+        processed_data = preprocess_func(data, {'split': 'test'})
+        def get_cache(attr):
+            return processed_data
+
         batcher = self.get_batcher(device)
         infer_dataset = InferenceDummySplit(data)
         self.dataset_split = infer_dataset
@@ -144,7 +149,8 @@ class SemanticSegmentation(BasePipeline):
                                       preprocess=model.preprocess,
                                       transform=model.transform,
                                       sampler=infer_sampler,
-                                      use_cache=False)
+                                      use_cache=False,                                    
+                                      cache_convert=get_cache)
         infer_loader = DataLoader(infer_split,
                                   batch_size=cfg.batch_size,
                                   sampler=get_sampler(infer_sampler),
@@ -190,7 +196,7 @@ class SemanticSegmentation(BasePipeline):
         model.eval()
         self.metric_test = SemSegMetric()
 
-        timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
         log.info("DEVICE : {}".format(device))
         log_file_path = join(cfg.logs_dir, 'log_test_' + timestamp + '.txt')
@@ -320,7 +326,7 @@ class SemanticSegmentation(BasePipeline):
         model.to(device)
 
         log.info("DEVICE : {}".format(device))
-        timestamp = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
         log_file_path = join(cfg.logs_dir, 'log_train_' + timestamp + '.txt')
         log.info("Logging in file : {}".format(log_file_path))
